@@ -197,6 +197,25 @@ class TestCheckPriceDiagnostic:
         assert result["status"] == "error"
         assert result["diagnostic"] == "no price found in fallback text"
 
+    def test_fallback_dumps_sample_payload_when_captured_but_unmatched(self):
+        # this is the real scenario hit in production: JSON was captured
+        # (network + embedded) but extract_listings' generic price/quantity
+        # key-matching didn't find anything usable in it - the diagnostic
+        # should show the real payload shape instead of a generic message
+        fake_result = common.FetchResult(
+            "ok",
+            http_status=200,
+            captured=[{"ticketGroups": [{"cost": 398, "seatCount": 1}]}],
+            text="Sec 100 $398 each",
+            diagnostic="",
+        )
+        with patch("scrapers.common.fetch_with_capture", return_value=fake_result):
+            result = common.check_price("https://example.com", re.compile("x"))
+
+        assert result["status"] == "fallback"
+        assert "captured 1 JSON payload" in result["diagnostic"]
+        assert "ticketGroups" in result["diagnostic"]
+
 
 class TestLowestPairPrice:
     def test_ignores_single_seat_listings(self):

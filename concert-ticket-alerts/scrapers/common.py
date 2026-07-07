@@ -374,8 +374,19 @@ def check_price(url, api_url_pattern):
 
     fallback_price = lowest_sane_price(result.text)
     diagnostic = result.diagnostic
-    if fallback_price is None and not diagnostic:
-        diagnostic = "no price found in fallback text"
+    if not diagnostic:
+        if result.captured:
+            # We captured real JSON but extract_listings' generic
+            # price/quantity key-matching found nothing usable in it -
+            # dump a sample so the real key names are visible instead of
+            # guessing at extract_listings' regex blind again.
+            sample = json.dumps(result.captured[0])[:1500]
+            diagnostic = (
+                f"captured {len(result.captured)} JSON payload(s) but found no "
+                f"quantity-aware listing dicts in them; sample payload: {sample}"
+            )
+        elif fallback_price is None:
+            diagnostic = "no price found in fallback text"
     return {
         "price_per_ticket": fallback_price,
         "status": "fallback" if fallback_price is not None else "error",
