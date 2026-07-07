@@ -29,6 +29,7 @@ class WatchedEvent:
     venue: str
     seatgeek_event_id: int
     seatgeek_performer_slug: str  # pulls every tour date for the supply/demand signal
+    seatgeek_url: str  # scraping fallback target when SEATGEEK_CLIENT_ID isn't set/working
     stubhub_url: str
     vividseats_url: str
     price_target_per_ticket: float  # flat dollar alert threshold, per ticket
@@ -43,6 +44,10 @@ WATCHED_EVENTS = [
         venue="Citi Field, Flushing, NY",
         seatgeek_event_id=18065521,
         seatgeek_performer_slug="noah-kahan",
+        seatgeek_url=(
+            "https://seatgeek.com/noah-kahan-tickets/flushing-new-york-citi-field-"
+            "2026-07-19-6-30-pm/concert/18065521"
+        ),
         # quantity=2 filters the listing grid down to pairs of seats sold
         # together - without it the page (and our scraper) defaults to
         # showing single tickets, which is a different, usually much lower,

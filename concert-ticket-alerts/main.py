@@ -8,6 +8,7 @@ import health
 import seatgeek_api
 import storage
 import supply_demand
+from scrapers import seatgeek as seatgeek_scraper
 from scrapers import stubhub, vividseats
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -96,26 +97,45 @@ def write_step_summary(event, source_results, alert_reasons, signal_text):
         f.write("\n".join(lines) + "\n")
 
 
+def check_seatgeek(event, source_results, alert_reasons):
+    """SeatGeek's official API is the reliable primary source. If it isn't
+    configured (no SEATGEEK_CLIENT_ID) or the call itself fails, fall back
+    to scraping seatgeek.com directly - same tiered scraper as StubHub/
+    Vivid Seats, sharing storage/health namespace with the API path so
+    price history and escalation stay continuous regardless of source.
+    """
+    namespace = f"{event.key}__seatgeek"
+
+    if seatgeek_api.is_configured():
+        try:
+            stats = seatgeek_api.get_event_stats(event.seatgeek_event_id)
+            reason = check_source(namespace, stats["lowest_price"], event)
+            source_results.append(("seatgeek (api)", "ok", stats["lowest_price"]))
+            if reason:
+                alert_reasons.append(reason)
+            return
+        except Exception:
+            logger.exception("[%s] API call failed, falling back to scraping", namespace)
+    else:
+        logger.warning("[%s] SEATGEEK_CLIENT_ID not set, falling back to scraping", namespace)
+
+    try:
+        status, price, reason = check_scraped_source(
+            namespace, seatgeek_scraper, event.seatgeek_url, event
+        )
+        source_results.append(("seatgeek (scraped)", status, price))
+        if reason:
+            alert_reasons.append(reason)
+    except Exception:
+        logger.exception("[%s] scraping fallback FAILED", namespace)
+        source_results.append(("seatgeek (scraped)", "error", None))
+
+
 def process_event(event):
     alert_reasons = []
     source_results = []  # (source_name, status, price_per_ticket)
 
-    # SeatGeek: reliable API, no scraping involved.
-    if not seatgeek_api.is_configured():
-        logger.warning(
-            "[%s__seatgeek] skipped - SEATGEEK_CLIENT_ID is not set", event.key
-        )
-        source_results.append(("seatgeek", "skipped", None))
-    else:
-        try:
-            stats = seatgeek_api.get_event_stats(event.seatgeek_event_id)
-            reason = check_source(f"{event.key}__seatgeek", stats["lowest_price"], event)
-            source_results.append(("seatgeek", "ok", stats["lowest_price"]))
-            if reason:
-                alert_reasons.append(reason)
-        except Exception:
-            logger.exception("[%s__seatgeek] FAILED", event.key)
-            source_results.append(("seatgeek", "error", None))
+    check_seatgeek(event, source_results, alert_reasons)
 
     # StubHub / Vivid Seats: best-effort scraping, may fail - don't let a
     # failure here block the other sources.
