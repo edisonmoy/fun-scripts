@@ -109,12 +109,15 @@ class TestExtractListings:
 
         assert listings[0]["price_per_ticket"] == 350.0
 
-    def test_parses_real_vividseats_minified_listing_schema(self):
-        # this is the actual payload shape captured from the live site
-        # (see the "largest list anywhere" diagnostic) - single-letter
-        # keys instead of "price"/"quantity", which the generic
-        # price$/quantity$ regex scan can't match at all
-        real_item = {
+    def test_does_not_misinterpret_seatmap_heatmap_data_as_a_listing(self):
+        # regression test: this shape (single-letter "l"/"h" price-range
+        # fields, empty seller/listing/product ids, geometric rendering
+        # fields) is real Vivid Seats data but is seat-map heatmap/
+        # visualization data, not an individual bookable listing - an
+        # earlier version of extract_listings wrongly special-cased "l"
+        # as price and "q" as quantity here, which silently returned a
+        # fabricated price at fake "high" confidence
+        heatmap_zone = {
             "productionId": 6642335, "i": "5001", "g": "394260", "a": "1",
             "h": "798.00", "l": "621.00", "q": "3", "n": "Field A1",
             "si": "", "li": "", "pi": "", "laip": "837.35", "mbi": "",
@@ -122,21 +125,7 @@ class TestExtractListings:
             "dst": 55.69, "rx": 45.32, "ry": 30.56, "localPrices": None,
         }
 
-        listings = common.extract_listings(real_item)
-
-        assert listings == [
-            {"price_per_ticket": 621.0, "quantity": 3, "section": "Field A1", "row": None}
-        ]
-
-    def test_vividseats_schema_requires_all_three_fingerprint_keys(self):
-        # "l" and "q" alone are too ambiguous (huge false-positive risk on
-        # unrelated JSON) - productionId must also be present
-        assert common.extract_listings({"l": "100", "q": "2"}) == []
-
-    def test_vividseats_schema_ignores_unparseable_values(self):
-        payload = {"productionId": 1, "l": "not-a-number", "q": "2"}
-
-        assert common.extract_listings(payload) == []
+        assert common.extract_listings(heatmap_zone) == []
 
 
 class TestExtractEmbeddedJsonBlobs:
