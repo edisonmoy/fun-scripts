@@ -50,6 +50,12 @@ Edit `config.py`:
 - `MIN_SANE_TICKET_PRICE` / `MAX_SANE_TICKET_PRICE` - sanity bounds used to
   filter junk numbers out of scraped page text
 
+## Linting
+
+`pip install -r requirements-dev.txt` then `ruff check .` from this
+directory. Runs automatically in CI on any push/PR touching this folder
+(`.github/workflows/noah-kahan-lint.yml`).
+
 ## Known limitations
 
 - StubHub/Vivid Seats scraping may get blocked entirely if their bot

@@ -64,13 +64,22 @@ def build_signal(snapshots, target_event_id):
         if first:
             pct_change = (latest - first) / first * 100
             trend = "down" if pct_change < 0 else "up"
-            lines.append(f"Price trend for this show: {trend} {abs(pct_change):.0f}% since we started tracking.")
+            lines.append(
+                f"Price trend for this show: {trend} {abs(pct_change):.0f}% "
+                "since we started tracking."
+            )
 
     if len(listing_history) >= 2:
         first, latest = listing_history[0], listing_history[-1]
         if first:
             pct_change = (latest - first) / first * 100
-            trend = "more listings (supply loosening)" if pct_change > 0 else "fewer listings (supply tightening)"
-            lines.append(f"Inventory trend: {trend}, {abs(pct_change):.0f}% since we started tracking.")
+            trend = (
+                "more listings (supply loosening)"
+                if pct_change > 0
+                else "fewer listings (supply tightening)"
+            )
+            lines.append(
+                f"Inventory trend: {trend}, {abs(pct_change):.0f}% since we started tracking."
+            )
 
     return " ".join(lines)
