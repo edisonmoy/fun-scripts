@@ -3,6 +3,7 @@ import logging
 import random
 import re
 import time
+from urllib.parse import urlsplit
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
@@ -22,10 +23,11 @@ NON_TICKET_LINE_RE = re.compile(
 # "lowest price" over an actual listing.
 PRICE_RANGE_LINE_RE = re.compile(r"\$[\d,]+\s*-\s*\$[\d,]+")
 
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-)
+# Deliberately NOT overriding user_agent: a hardcoded UA string that
+# doesn't match the browser's real Client Hints headers / TLS fingerprint
+# is itself a bot-detection signal (inconsistent fingerprint surfaces are
+# more suspicious than a consistent, honestly-reported one). Let whichever
+# browser we launch self-report natively across every surface instead.
 
 # Very small stealth pass: hides the most common automation tells that
 # basic bot-detection checks for. Not a guarantee against Akamai/PerimeterX
@@ -36,6 +38,25 @@ window.chrome = { runtime: {} };
 Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
 Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
 """
+
+
+def _launch_browser(p):
+    """Prefer a real installed Chrome binary over Playwright's bundled
+    Chromium - GitHub Actions' ubuntu-latest runners ship Chrome stable by
+    default, and a real Chrome's TLS/JA3 fingerprint and Client Hints are
+    more convincing to bot detection than the bundled build's. Falls back
+    to bundled Chromium wherever real Chrome isn't installed (e.g. local
+    dev, other runner images).
+    """
+    launch_args = {
+        "headless": True,
+        "args": ["--disable-blink-features=AutomationControlled"],
+    }
+    try:
+        return p.chromium.launch(channel="chrome", **launch_args)
+    except Exception:
+        logger.info("real Chrome channel unavailable, falling back to bundled Chromium")
+        return p.chromium.launch(**launch_args)
 
 BLOCK_TEXT_MARKERS = [
     "pardon the interruption",
@@ -115,12 +136,8 @@ def fetch_with_capture(url, api_url_pattern, retries=3, timeout_ms=30000):
         logger.info("attempt %d/%d: fetching %s", attempt, retries, url)
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch(
-                    headless=True,
-                    args=["--disable-blink-features=AutomationControlled"],
-                )
+                browser = _launch_browser(p)
                 context = browser.new_context(
-                    user_agent=USER_AGENT,
                     viewport={"width": 1366, "height": 900},
                     locale="en-US",
                     timezone_id="America/New_York",
@@ -139,6 +156,20 @@ def fetch_with_capture(url, api_url_pattern, retries=3, timeout_ms=30000):
                         pass  # not every matched response is parseable JSON; skip it
 
                 page.on("response", on_response)
+
+                if attempt == 1:
+                    # Warm up with a homepage visit first, so the deep-link
+                    # event page is reached via a natural referrer/cookie
+                    # chain instead of a bare cold hit - real visitors
+                    # essentially never teleport straight to a deep link.
+                    # Best-effort: if this fails for any reason, proceed
+                    # straight to the real target anyway.
+                    try:
+                        origin = f"{urlsplit(url).scheme}://{urlsplit(url).netloc}"
+                        page.goto(origin, timeout=10000, wait_until="domcontentloaded")
+                        time.sleep(random.uniform(1.0, 2.5))
+                    except Exception:
+                        pass
 
                 time.sleep(random.uniform(0.5, 2.0))  # avoid an instant, robotic navigation
                 resp = page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")

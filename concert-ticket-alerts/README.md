@@ -11,22 +11,43 @@ show - see "Adding another show" below.
 ## How it works
 
 - **SeatGeek**: uses SeatGeek's free public API (`api.seatgeek.com`) for
-  `lowest_price` / `median_price` / `listing_count`. This is the reliable
-  core of the system - no scraping, no bot-detection risk.
+  `lowest_price` / `median_price` / `listing_count` when `SEATGEEK_CLIENT_ID`
+  is set - reliable, no scraping, no bot-detection risk. If it's not set, or
+  the API call itself fails, `main.check_seatgeek()` falls back to scraping
+  seatgeek.com directly via the same pipeline as StubHub/Vivid Seats. Both
+  paths share one price-history/health namespace so trends stay continuous
+  regardless of which method produced a given reading. The tour-wide
+  supply/demand signal still requires the real API (scraping an artist's
+  full tour listing page isn't implemented).
 - **StubHub / Vivid Seats**: no free public API exists, so these are
   scraped with a headless browser (Playwright). Both sites run bot
-  detection (confirmed: they 403 plain HTTP requests). The scraper
-  (`scrapers/common.py`) works in tiers:
-  1. Launch with a stealth pass (patched `navigator.webdriver`, realistic
-     UA/viewport/locale/timezone) and jittered pacing/retries.
+  detection (confirmed: StubHub 403s every single request, even a plain
+  HTTP one, with zero variance - almost certainly edge/WAF-level, not just
+  a JS fingerprint check). The scraper (`scrapers/common.py`) works in
+  tiers:
+  1. Launch a real installed Chrome binary when available (`channel="chrome"`
+     - GitHub Actions' `ubuntu-latest` ships this by default), falling back
+     to Playwright's bundled Chromium otherwise. A real Chrome's TLS/JA3
+     fingerprint and Client Hints are more convincing than the bundled
+     build's, and deliberately does *not* override `navigator.userAgent` -
+     a spoofed UA that doesn't match the browser's real fingerprint surfaces
+     is itself a detection signal. Also does a homepage warm-up visit before
+     the deep-link event page (natural referrer/cookie chain) and jittered
+     pacing/retries.
   2. Listen on the network layer and capture the site's own internal JSON
-     responses (listings/GraphQL calls), then scan them for listing-shaped
-     data (a price + quantity together) so we get a real "2 tickets
-     together" price instead of a guess. This is schema-agnostic since the
-     real API shape wasn't observable while building it - see "Known
-     limitations".
-  3. If no usable JSON was captured, fall back to the cheapest plausible
-     `$` amount in the rendered page text (marked `confidence: low`).
+     responses (listings/GraphQL calls), *and* scan the page HTML for
+     SSR-embedded JSON (`__NEXT_DATA__`, `__INITIAL_STATE__`,
+     `__APOLLO_STATE__` - some sites embed their full listing dataset
+     directly in HTML for SEO rather than firing a separate XHR). Both
+     sources feed the same listing-shaped-data scan (a price + quantity
+     together), so we get a real "2 tickets together" price instead of a
+     guess. This is schema-agnostic since the real API shape wasn't
+     observable while building it - see "Known limitations".
+  3. If no usable JSON was found, fall back to the cheapest plausible `$`
+     amount in the rendered page text (marked `confidence: low`, and any
+     alert built on it says `[UNVERIFIED ESTIMATE]` rather than presenting
+     it as fact - this heuristic can't structurally guarantee it read a real
+     2-together listing rather than e.g. a summary price-range display).
   4. If the response looks like a bot-detection challenge (403/429/503, or
      page text matching known challenge-page phrases), the run is marked
      `blocked` instead of guessing at bad data.
@@ -121,18 +142,26 @@ Both run automatically in CI on any push/PR touching this folder
 
 ## Known limitations
 
-- StubHub/Vivid Seats scraping may get blocked entirely if their bot
-  detection flags GitHub Actions' IP ranges. If that happens consistently,
-  the practical fallback is to treat SeatGeek's price as the primary
-  signal - resale prices for the same show tend to move together across
-  platforms.
-- `scrapers/stubhub.py` / `vividseats.py`'s `API_URL_PATTERN` (which
-  network responses to inspect for listing JSON) is a broad guess, not
-  observed against the real site - this sandbox's network policy blocks
+- **StubHub is confirmed hard-blocked** as of the first live runs: 403 on
+  every single request, all 3 retries, no variance. That pattern (instant,
+  consistent rejection, not a timeout or partial load) points to edge/WAF-
+  level blocking (Akamai/PerimeterX-class), likely including IP/ASN
+  reputation - GitHub Actions runners use well-known datacenter IP ranges
+  that enterprise bot-management vendors commonly denylist wholesale,
+  independent of how convincing the browser fingerprint is. The stealth
+  improvements here (real Chrome channel, no UA mismatch, referrer warm-up)
+  are worth having regardless, but if StubHub stays blocked after them, the
+  likely real fix is routing through a residential/non-datacenter proxy -
+  that's a cost + provider decision, not something to silently wire up.
+- `scrapers/stubhub.py` / `vividseats.py` / `seatgeek.py`'s `API_URL_PATTERN`
+  (which network responses to inspect for listing JSON) is a broad guess,
+  not observed against the real site - this sandbox's network policy blocks
   these hosts, so it couldn't be verified live. If the "ok" (high
   confidence) status never shows up in the logs, tighten the pattern once
   a real captured request URL/payload is visible (e.g. from an escalated
   issue's diagnostic snippet).
 - The text-heuristic fallback's "lowest price" still isn't guaranteed to
   be for 2 adjacent seats specifically, just the cheapest ticket-looking
-  price on the page.
+  price on the page (after excluding known non-ticket lines and price-range
+  summary stats) - hence the `[UNVERIFIED ESTIMATE]` flag on any alert built
+  from it.

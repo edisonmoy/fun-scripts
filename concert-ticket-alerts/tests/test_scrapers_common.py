@@ -1,4 +1,26 @@
+from unittest.mock import MagicMock
+
 from scrapers import common
+
+
+class TestLaunchBrowser:
+    def test_prefers_real_chrome_channel(self):
+        mock_p = MagicMock()
+
+        common._launch_browser(mock_p)
+
+        assert mock_p.chromium.launch.call_args.kwargs.get("channel") == "chrome"
+
+    def test_falls_back_to_bundled_chromium_when_chrome_unavailable(self):
+        mock_p = MagicMock()
+        mock_p.chromium.launch.side_effect = [Exception("not found"), MagicMock()]
+
+        common._launch_browser(mock_p)
+
+        calls = mock_p.chromium.launch.call_args_list
+        assert len(calls) == 2
+        assert calls[0].kwargs.get("channel") == "chrome"
+        assert "channel" not in calls[1].kwargs
 
 
 class TestLowestSanePrice:
