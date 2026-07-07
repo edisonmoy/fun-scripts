@@ -99,6 +99,18 @@ def extract_embedded_json_blobs(html):
     return blobs
 
 
+SCRIPT_ID_RE = re.compile(r'<script[^>]*\bid=["\']([^"\']+)["\']', re.I)
+
+
+def find_script_ids(html):
+    """Distinct script tag ids present on the page - diagnostic aid for
+    finding the real SSR-embedded-JSON id when EMBEDDED_JSON_PATTERNS
+    doesn't match anything (e.g. the site uses a different variable name
+    than __NEXT_DATA__/__INITIAL_STATE__/__APOLLO_STATE__).
+    """
+    return sorted(set(SCRIPT_ID_RE.findall(html)))
+
+
 class FetchResult:
     """Outcome of one scrape attempt.
 
@@ -146,8 +158,11 @@ def fetch_with_capture(url, api_url_pattern, retries=3, timeout_ms=30000):
                 page = context.new_page()
 
                 captured = []
+                all_response_urls = []
 
-                def on_response(response, _captured=captured):
+                def on_response(response, _captured=captured, _all_urls=all_response_urls):
+                    if len(_all_urls) < 40:
+                        _all_urls.append(response.url)
                     try:
                         content_type = response.headers.get("content-type", "")
                         if api_url_pattern.search(response.url) and "json" in content_type:
@@ -197,13 +212,28 @@ def fetch_with_capture(url, api_url_pattern, retries=3, timeout_ms=30000):
                 )
             else:
                 embedded = extract_embedded_json_blobs(html)
+                network_json_count = len(captured)
                 captured.extend(embedded)
+
+                diagnostic = ""
+                if network_json_count == 0 and not embedded:
+                    # Nothing structured found at all - leave a breadcrumb
+                    # instead of guessing blind next time: what script tag
+                    # ids and response URLs actually exist on this page.
+                    script_ids = find_script_ids(html)
+                    diagnostic = (
+                        f"no network JSON matched api_url_pattern; no embedded JSON blobs "
+                        f"matched known patterns; script tag ids on page: {script_ids[:20]}; "
+                        f"sample response URLs: {all_response_urls[:20]}"
+                    )
+
                 logger.info(
                     "attempt %d/%d: ok (http_status=%s, %d network JSON + %d embedded JSON)",
-                    attempt, retries, http_status, len(captured) - len(embedded), len(embedded),
+                    attempt, retries, http_status, network_json_count, len(embedded),
                 )
                 return FetchResult(
-                    "ok", http_status=http_status, captured=captured, text=text
+                    "ok", http_status=http_status, captured=captured, text=text,
+                    diagnostic=diagnostic,
                 )
         except Exception as exc:
             logger.warning(
@@ -343,9 +373,12 @@ def check_price(url, api_url_pattern):
         }
 
     fallback_price = lowest_sane_price(result.text)
+    diagnostic = result.diagnostic
+    if fallback_price is None and not diagnostic:
+        diagnostic = "no price found in fallback text"
     return {
         "price_per_ticket": fallback_price,
         "status": "fallback" if fallback_price is not None else "error",
         "confidence": "low",
-        "diagnostic": "" if fallback_price is not None else "no price found in fallback text",
+        "diagnostic": diagnostic,
     }
