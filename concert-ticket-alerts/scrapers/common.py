@@ -3,6 +3,7 @@ import random
 import re
 import time
 
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 import config
@@ -106,8 +107,18 @@ def fetch_with_capture(url, api_url_pattern, retries=3, timeout_ms=30000):
                 page.on("response", on_response)
 
                 time.sleep(random.uniform(0.5, 2.0))  # avoid an instant, robotic navigation
-                resp = page.goto(url, timeout=timeout_ms, wait_until="networkidle")
+                resp = page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
                 http_status = resp.status if resp else None
+                try:
+                    # Give async listing/price requests time to fire and be
+                    # captured. Some sites (persistent polling, analytics
+                    # beacons) never go fully idle, so this is a bounded
+                    # grace period, not a hard requirement like networkidle
+                    # was - that caused every Vivid Seats attempt to burn
+                    # the full 30s timeout and fail outright.
+                    page.wait_for_load_state("networkidle", timeout=10000)
+                except PlaywrightTimeoutError:
+                    logger.info("page never went fully idle, proceeding with what was captured")
                 text = page.inner_text("body")
                 browser.close()
 
