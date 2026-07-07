@@ -15,6 +15,13 @@ DEFAULT_PCT_DROP_THRESHOLD = float(os.environ.get("PCT_DROP_THRESHOLD", 15))
 # Consecutive blocked/error scraper runs before we open a GitHub issue.
 ESCALATION_THRESHOLD = 3
 
+# Once escalated, how many further consecutive failures to wait before
+# re-commenting on the still-open issue. Without this, a source stuck at
+# "blocked" gets an identical "still blocked" comment on every single run
+# (e.g. 11 near-duplicate comments in a few hours at the 15-min cadence) -
+# this keeps the issue visibly alive without spamming it.
+RE_ESCALATION_INTERVAL = 20
+
 
 @dataclass
 class WatchedEvent:

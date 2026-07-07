@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 
 
-def check_source(namespace, price_per_ticket, event, confidence=None):
+def check_source(namespace, price_per_ticket, event, confidence=None, section=None, row=None):
     """Log a price reading and return an alert reason if it's a significant drop."""
     if price_per_ticket is None:
         logger.warning("[%s] no price found this run", namespace)
@@ -24,12 +24,13 @@ def check_source(namespace, price_per_ticket, event, confidence=None):
     floor_before = storage.running_floor(namespace)
     storage.append_record(namespace, {"price_per_ticket": price_per_ticket})
     logger.info(
-        "[%s] $%.0f/ticket (previous floor: %s)", namespace, price_per_ticket, floor_before
+        "[%s] $%.0f/ticket (previous floor: %s) section=%s row=%s",
+        namespace, price_per_ticket, floor_before, section, row,
     )
     return alerts.check_price_drop(
         namespace, price_per_ticket, floor_before,
         event.price_target_per_ticket, event.pct_drop_threshold,
-        confidence=confidence,
+        confidence=confidence, section=section, row=row,
     )
 
 
@@ -38,8 +39,9 @@ def check_scraped_source(namespace, scraper, url, event):
     result = scraper.check_price(url)
     consecutive, just_recovered = health.record_outcome(namespace, result["status"])
     logger.info(
-        "[%s] status=%s confidence=%s price=%s",
+        "[%s] status=%s confidence=%s price=%s section=%s row=%s",
         namespace, result["status"], result.get("confidence"), result.get("price_per_ticket"),
+        result.get("section"), result.get("row"),
     )
     if result["status"] == "fallback" and result.get("diagnostic"):
         # fallback alone doesn't escalate to a GitHub issue, but this is
@@ -48,7 +50,12 @@ def check_scraped_source(namespace, scraper, url, event):
         logger.info("[%s] fallback diagnostic: %s", namespace, result["diagnostic"])
 
     if result["status"] in ("blocked", "error"):
-        if consecutive >= config.ESCALATION_THRESHOLD:
+        over_threshold = consecutive - config.ESCALATION_THRESHOLD
+        just_crossed_threshold = over_threshold == 0
+        due_for_re_escalation = (
+            over_threshold > 0 and over_threshold % config.RE_ESCALATION_INTERVAL == 0
+        )
+        if just_crossed_threshold or due_for_re_escalation:
             try:
                 github_issue.escalate(namespace, result.get("diagnostic", ""))
                 logger.warning(
@@ -66,7 +73,10 @@ def check_scraped_source(namespace, scraper, url, event):
             logger.exception("[%s] failed to resolve GitHub issue", namespace)
 
     price = result.get("price_per_ticket")
-    reason = check_source(namespace, price, event, confidence=result.get("confidence"))
+    reason = check_source(
+        namespace, price, event, confidence=result.get("confidence"),
+        section=result.get("section"), row=result.get("row"),
+    )
     return result["status"], price, reason
 
 

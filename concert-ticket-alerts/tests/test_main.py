@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 import config
+import github_issue
 import health
 import main
 import seatgeek_api
@@ -103,3 +104,49 @@ def test_seatgeek_api_and_scraped_prices_share_one_price_history(tmp_path, monke
 
     assert storage.running_floor(f"{EVENT.key}__seatgeek") == 450
     assert seatgeek_api.is_configured() is False
+
+
+class TestEscalationThrottling:
+    """Regression coverage for the GitHub-issue comment-spam bug: escalate()
+    was firing on every single run once blocked, producing ~11 near-
+    identical "still blocked" comments in a few hours. Should only fire
+    once at the threshold, then at most every RE_ESCALATION_INTERVAL runs.
+    """
+
+    BLOCKED_RESULT = {
+        "price_per_ticket": None, "status": "blocked", "confidence": None, "diagnostic": "",
+    }
+
+    def _run_n_times(self, tmp_path, monkeypatch, n):
+        from scrapers import stubhub
+
+        _reset_storage(tmp_path, monkeypatch)
+        namespace = f"{EVENT.key}__stubhub"
+        escalate_calls = []
+        record_call = lambda *a: escalate_calls.append(a)  # noqa: E731
+        with patch("scrapers.stubhub.check_price", return_value=self.BLOCKED_RESULT), \
+             patch.object(github_issue, "escalate", side_effect=record_call), \
+             patch.object(github_issue, "resolve"):
+            for _ in range(n):
+                main.check_scraped_source(namespace, stubhub, EVENT.stubhub_url, EVENT)
+        return escalate_calls
+
+    def test_does_not_escalate_before_threshold(self, tmp_path, monkeypatch):
+        calls = self._run_n_times(tmp_path, monkeypatch, config.ESCALATION_THRESHOLD - 1)
+        assert len(calls) == 0
+
+    def test_escalates_exactly_once_at_threshold(self, tmp_path, monkeypatch):
+        calls = self._run_n_times(tmp_path, monkeypatch, config.ESCALATION_THRESHOLD)
+        assert len(calls) == 1
+
+    def test_does_not_re_escalate_every_run_after_threshold(self, tmp_path, monkeypatch):
+        # this is the actual bug: used to escalate on every run once past
+        # the threshold, not just periodically
+        runs = config.ESCALATION_THRESHOLD + config.RE_ESCALATION_INTERVAL - 1
+        calls = self._run_n_times(tmp_path, monkeypatch, runs)
+        assert len(calls) == 1
+
+    def test_re_escalates_after_the_interval(self, tmp_path, monkeypatch):
+        runs = config.ESCALATION_THRESHOLD + config.RE_ESCALATION_INTERVAL
+        calls = self._run_n_times(tmp_path, monkeypatch, runs)
+        assert len(calls) == 2
