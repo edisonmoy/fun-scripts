@@ -1,4 +1,5 @@
-from unittest.mock import MagicMock
+import re
+from unittest.mock import MagicMock, patch
 
 from scrapers import common
 
@@ -152,6 +153,49 @@ class TestExtractEmbeddedJsonBlobs:
         best = common.lowest_pair_price(listings)
 
         assert best["price_per_ticket"] == 599.0
+
+
+class TestFindScriptIds:
+    def test_finds_distinct_script_ids(self):
+        html = (
+            '<script id="__NUXT_DATA__">{...}</script>'
+            '<script id="gtm-script">console.log(1)</script>'
+        )
+
+        assert common.find_script_ids(html) == ["__NUXT_DATA__", "gtm-script"]
+
+    def test_no_script_tags_returns_empty_list(self):
+        assert common.find_script_ids("<html><body>hi</body></html>") == []
+
+
+class TestCheckPriceDiagnostic:
+    def test_fallback_surfaces_breadcrumb_when_nothing_structural_found(self):
+        # simulates: page loaded fine (not blocked), no network JSON
+        # matched, no known embedded-JSON pattern matched - the diagnostic
+        # should carry the script-id/URL breadcrumb from fetch_with_capture
+        # rather than just "no price found in fallback text"
+        fake_result = common.FetchResult(
+            "ok",
+            http_status=200,
+            captured=[],
+            text="Sec 100 $489 each",
+            diagnostic="no network JSON matched; script tag ids on page: ['__NUXT_DATA__']",
+        )
+        with patch("scrapers.common.fetch_with_capture", return_value=fake_result):
+            result = common.check_price("https://example.com", re.compile("x"))
+
+        assert result["status"] == "fallback"
+        assert "__NUXT_DATA__" in result["diagnostic"]
+
+    def test_fallback_with_no_price_still_reports_something(self):
+        fake_result = common.FetchResult(
+            "ok", http_status=200, captured=[], text="no prices here", diagnostic=""
+        )
+        with patch("scrapers.common.fetch_with_capture", return_value=fake_result):
+            result = common.check_price("https://example.com", re.compile("x"))
+
+        assert result["status"] == "error"
+        assert result["diagnostic"] == "no price found in fallback text"
 
 
 class TestLowestPairPrice:

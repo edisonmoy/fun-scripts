@@ -41,6 +41,11 @@ def check_scraped_source(namespace, scraper, url, event):
         "[%s] status=%s confidence=%s price=%s",
         namespace, result["status"], result.get("confidence"), result.get("price_per_ticket"),
     )
+    if result["status"] == "fallback" and result.get("diagnostic"):
+        # fallback alone doesn't escalate to a GitHub issue, but this is
+        # exactly the breadcrumb needed to stop guessing blind at why
+        # structured extraction found nothing - surface it in the logs.
+        logger.info("[%s] fallback diagnostic: %s", namespace, result["diagnostic"])
 
     if result["status"] in ("blocked", "error"):
         if consecutive >= config.ESCALATION_THRESHOLD:
