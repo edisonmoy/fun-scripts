@@ -43,10 +43,18 @@ WATCHED_EVENTS = [
         venue="Citi Field, Flushing, NY",
         seatgeek_event_id=18065521,
         seatgeek_performer_slug="noah-kahan",
-        stubhub_url="https://www.stubhub.com/noah-kahan-flushing-tickets-7-19-2026/event/160467853/",
+        # quantity=2 filters the listing grid down to pairs of seats sold
+        # together - without it the page (and our scraper) defaults to
+        # showing single tickets, which is a different, usually much lower,
+        # price. Confirmed against the live Vivid Seats page: 1 ticket
+        # showed $390 lowest, 2 tickets together showed $599 lowest.
+        stubhub_url=(
+            "https://www.stubhub.com/noah-kahan-flushing-tickets-7-19-2026/"
+            "event/160467853/?quantity=2"
+        ),
         vividseats_url=(
             "https://www.vividseats.com/noah-kahan-tickets-flushing-citi-field-"
-            "7-19-2026--concerts-pop/production/6642335"
+            "7-19-2026--concerts-pop/production/6642335?quantity=2"
         ),
         price_target_per_ticket=float(os.environ.get("PRICE_TARGET_PER_TICKET", 500)),
     ),
