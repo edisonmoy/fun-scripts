@@ -44,7 +44,7 @@ def escalate(source, diagnostic):
         f"`{source}` has failed for several consecutive runs "
         "(bot detection or a broken selector/API pattern).\n\n"
         f"Diagnostic snippet from the most recent run:\n```\n{diagnostic[:2000]}\n```\n\n"
-        "Needs a code fix in `noah-kahan-alerts/scrapers/` - update the "
+        "Needs a code fix in `concert-ticket-alerts/scrapers/` - update the "
         "network-capture URL pattern, stealth settings, or fallback logic."
     )
     existing = _find_open_issue(title)

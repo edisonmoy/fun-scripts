@@ -3,8 +3,6 @@ import smtplib
 import ssl
 from email.mime.text import MIMEText
 
-import config
-
 
 def send_email(subject, body):
     sender = os.environ["ALERT_EMAIL_FROM"]
@@ -22,22 +20,24 @@ def send_email(subject, body):
         server.sendmail(sender, [recipient], msg.as_string())
 
 
-def check_price_drop(source, price_per_ticket, floor_before):
+def check_price_drop(
+    source, price_per_ticket, floor_before, price_target_per_ticket, pct_drop_threshold
+):
     """Return an alert reason string if this price is a significant drop, else None.
 
     Fires on either condition: hitting the flat dollar target, or falling
-    PCT_DROP_THRESHOLD percent below the lowest price seen so far.
+    pct_drop_threshold percent below the lowest price seen so far.
     """
     if price_per_ticket is None:
         return None
 
     reasons = []
-    if price_per_ticket <= config.PRICE_TARGET_PER_TICKET:
-        reasons.append(f"hit your ${config.PRICE_TARGET_PER_TICKET:.0f}/ticket target")
+    if price_per_ticket <= price_target_per_ticket:
+        reasons.append(f"hit your ${price_target_per_ticket:.0f}/ticket target")
 
     if floor_before is not None and floor_before > 0:
         pct_drop = (floor_before - price_per_ticket) / floor_before * 100
-        if pct_drop >= config.PCT_DROP_THRESHOLD:
+        if pct_drop >= pct_drop_threshold:
             reasons.append(
                 f"dropped {pct_drop:.0f}% below the previous floor "
                 f"(${floor_before:.0f} -> ${price_per_ticket:.0f})"
