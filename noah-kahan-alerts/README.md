@@ -69,11 +69,17 @@ Edit `config.py`:
 `ESCALATION_THRESHOLD` in `main.py` controls how many consecutive
 blocked/error runs trigger a GitHub issue (default 3).
 
-## Linting
+## Linting and tests
 
-`pip install -r requirements-dev.txt` then `ruff check .` from this
-directory. Runs automatically in CI on any push/PR touching this folder
-(`.github/workflows/noah-kahan-lint.yml`).
+`pip install -r requirements-dev.txt`, then from this directory:
+- `ruff check .` - lint
+- `pytest -q` - unit tests (`tests/`), covering alert thresholds, storage,
+  the health/escalation state machine, price/listing extraction and
+  bot-block detection, the SeatGeek client, and GitHub issue escalation.
+  All mocked/local - no network calls, no real browser.
+
+Both run automatically in CI on any push/PR touching this folder
+(`.github/workflows/noah-kahan-checks.yml`).
 
 ## Known limitations
 

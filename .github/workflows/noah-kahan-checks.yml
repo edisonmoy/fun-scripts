@@ -1,4 +1,4 @@
-name: Noah Kahan lint
+name: Noah Kahan checks
 
 on:
   push:
@@ -24,3 +24,20 @@ jobs:
       - name: Run ruff
         working-directory: noah-kahan-alerts
         run: ruff check .
+
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: noah-kahan-alerts
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        working-directory: noah-kahan-alerts
+        run: pytest -q
