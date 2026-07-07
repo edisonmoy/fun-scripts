@@ -127,6 +127,61 @@ class TestExtractListings:
 
         assert common.extract_listings(heatmap_zone) == []
 
+    def test_parses_real_vividseats_ticket_schema(self):
+        # the actual payload["tickets"] item shape captured from the live
+        # site: "p" is price, "q" is quantity, "s" is section, "r" is row,
+        # "i" is a real alphanumeric listing id (unlike the heatmap/groups
+        # shape's empty seller/listing/product id fields above)
+        real_ticket = {
+            "s": "Promenade Reserved 527", "r": "15", "q": "1", "p": "294.50",
+            "i": "VB16030960293", "d": "527", "aip": "397.46",
+            "stp": "Ticketmaster Transfer", "faceValue": "0.00", "di": False,
+        }
+
+        listings = common.extract_listings(real_ticket)
+
+        assert listings == [
+            {
+                "price_per_ticket": 294.5, "quantity": 1,
+                "section": "Promenade Reserved 527", "row": "15",
+            }
+        ]
+
+    def test_vividseats_groups_shape_is_still_ignored_not_tickets(self):
+        # "groups" (section price-range summaries) superficially looks
+        # like the same "l"/"h"/"q" shape as the heatmap data above and
+        # must NOT be picked up as a real listing - its "q" means "count
+        # of listings in this section", not a purchasable quantity, and it
+        # has no row field at all
+        real_group = {
+            "productionId": 6642335, "i": "394259", "n": "Front Porch",
+            "h": "3421.00", "l": "1262.00", "q": "22", "g": "1",
+            "localPrices": None,
+        }
+
+        assert common.extract_listings(real_group) == []
+
+    def test_vividseats_ticket_schema_ignores_unparseable_values(self):
+        payload = {"s": "A", "r": "1", "q": "1", "p": "not-a-number"}
+
+        assert common.extract_listings(payload) == []
+
+    def test_picks_real_pair_price_from_mixed_ticket_array(self):
+        # end-to-end: a realistic array mixing a 1-ticket listing (cheaper)
+        # with a real 2-together listing - must pick the latter, not just
+        # the globally cheapest single ticket
+        tickets = [
+            {"s": "Promenade 527", "r": "15", "q": "1", "p": "294.50", "i": "VB1"},
+            {"s": "Promenade 527", "r": "11", "q": "2", "p": "599.00", "i": "VB2"},
+            {"s": "Field A1", "r": "3", "q": "4", "p": "621.00", "i": "VB3"},
+        ]
+
+        listings = common.extract_listings(tickets)
+        best = common.lowest_pair_price(listings)
+
+        assert best["price_per_ticket"] == 599.0
+        assert best["row"] == "11"
+
 
 class TestExtractEmbeddedJsonBlobs:
     def test_finds_next_data_script_tag(self):
