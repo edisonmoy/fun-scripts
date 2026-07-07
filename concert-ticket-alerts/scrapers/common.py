@@ -1,3 +1,4 @@
+import json
 import logging
 import random
 import re
@@ -15,6 +16,11 @@ NON_TICKET_LINE_RE = re.compile(
     r"parking|fee|delivery|shipping|donation|merch|vip package|add-?on",
     re.I,
 )
+# A line like "$390 - $3,052+" is a price-range summary stat (often a
+# filter bar showing the site-wide min/max regardless of the current
+# quantity filter), not an individual listing - it should never win
+# "lowest price" over an actual listing.
+PRICE_RANGE_LINE_RE = re.compile(r"\$[\d,]+\s*-\s*\$[\d,]+")
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -42,6 +48,34 @@ BLOCK_TEXT_MARKERS = [
     "unusual traffic",
     "are you a robot",
 ]
+
+# Many SEO-conscious sites (Next.js etc.) server-render their full listing
+# dataset directly into the HTML as a JSON blob, rather than fetching it via
+# a separate XHR/fetch call after load. A network-response listener never
+# sees that data at all - these patterns pull it straight out of the HTML.
+EMBEDDED_JSON_PATTERNS = [
+    re.compile(r'<script[^>]*id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>', re.S),
+    re.compile(r"window\.__NEXT_DATA__\s*=\s*(\{.*?\});", re.S),
+    re.compile(r"window\.__INITIAL_STATE__\s*=\s*(\{.*?\});", re.S),
+    re.compile(r"window\.__APOLLO_STATE__\s*=\s*(\{.*?\});", re.S),
+]
+
+
+def extract_embedded_json_blobs(html):
+    """Best-effort scan of raw page HTML for SSR-embedded JSON. Regex over
+    HTML/JS is inherently fragile (can't handle a literal '};' inside a
+    string value, for instance) but is a reasonable tradeoff here - a
+    missed blob just means falling through to network capture or the text
+    heuristic, not a wrong answer.
+    """
+    blobs = []
+    for pattern in EMBEDDED_JSON_PATTERNS:
+        for match in pattern.findall(html):
+            try:
+                blobs.append(json.loads(match))
+            except json.JSONDecodeError:
+                continue
+    return blobs
 
 
 class FetchResult:
@@ -120,6 +154,7 @@ def fetch_with_capture(url, api_url_pattern, retries=3, timeout_ms=30000):
                 except PlaywrightTimeoutError:
                     logger.info("page never went fully idle, proceeding with what was captured")
                 text = page.inner_text("body")
+                html = page.content()
                 browser.close()
 
             if _looks_blocked(http_status, text):
@@ -130,9 +165,11 @@ def fetch_with_capture(url, api_url_pattern, retries=3, timeout_ms=30000):
                     "blocked", http_status=http_status, text=text, diagnostic=text[:2000]
                 )
             else:
+                embedded = extract_embedded_json_blobs(html)
+                captured.extend(embedded)
                 logger.info(
-                    "attempt %d/%d: ok (http_status=%s, %d JSON responses captured)",
-                    attempt, retries, http_status, len(captured),
+                    "attempt %d/%d: ok (http_status=%s, %d network JSON + %d embedded JSON)",
+                    attempt, retries, http_status, len(captured) - len(embedded), len(embedded),
                 )
                 return FetchResult(
                     "ok", http_status=http_status, captured=captured, text=text
@@ -155,12 +192,13 @@ def lowest_sane_price(text):
     """Cheapest $ amount in `text` that looks like a plausible ticket price.
 
     Crude fallback for when network-JSON capture finds nothing usable:
-    drops lines that look like parking/fees/other non-ticket line items,
-    then filters remaining $ amounts using config.MIN_SANE_TICKET_PRICE /
-    MAX_SANE_TICKET_PRICE.
+    drops lines that look like parking/fees/other non-ticket line items or
+    a price-range summary stat, then filters remaining $ amounts using
+    config.MIN_SANE_TICKET_PRICE / MAX_SANE_TICKET_PRICE.
     """
     ticket_lines = [
-        line for line in text.splitlines() if not NON_TICKET_LINE_RE.search(line)
+        line for line in text.splitlines()
+        if not NON_TICKET_LINE_RE.search(line) and not PRICE_RANGE_LINE_RE.search(line)
     ]
     prices = [
         float(p.replace(",", ""))

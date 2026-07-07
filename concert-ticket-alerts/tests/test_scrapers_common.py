@@ -24,6 +24,14 @@ class TestLowestSanePrice:
     def test_handles_comma_thousands_separator(self):
         assert common.lowest_sane_price("Sec 1 $1,250 each") == 1250.0
 
+    def test_ignores_price_range_summary_line(self):
+        # a filter-bar range like "$390 - $3,052+" is a site-wide min/max,
+        # not an individual listing - confirmed against the real Vivid
+        # Seats page, which shows this regardless of the quantity filter
+        text = "$390 - $3,052+\nRow 11 | 2 tickets\n$599 ea\n"
+
+        assert common.lowest_sane_price(text) == 599.0
+
 
 class TestBlockDetection:
     def test_detects_http_status_codes(self):
@@ -77,6 +85,51 @@ class TestExtractListings:
         listings = common.extract_listings(payload)
 
         assert listings[0]["price_per_ticket"] == 350.0
+
+
+class TestExtractEmbeddedJsonBlobs:
+    def test_finds_next_data_script_tag(self):
+        html = (
+            '<script id="__NEXT_DATA__" type="application/json">'
+            '{"listings": [{"price": 599, "quantity": 2}]}'
+            "</script>"
+        )
+
+        blobs = common.extract_embedded_json_blobs(html)
+
+        assert len(blobs) == 1
+        assert blobs[0]["listings"][0]["price"] == 599
+
+    def test_finds_window_initial_state_assignment(self):
+        html = 'window.__INITIAL_STATE__ = {"listings": [{"price": 480, "quantity": 2}]};'
+
+        blobs = common.extract_embedded_json_blobs(html)
+
+        assert len(blobs) == 1
+        assert blobs[0]["listings"][0]["price"] == 480
+
+    def test_ignores_unparseable_blobs(self):
+        html = '<script id="__NEXT_DATA__">{not valid json</script>'
+
+        assert common.extract_embedded_json_blobs(html) == []
+
+    def test_no_matches_returns_empty_list(self):
+        assert common.extract_embedded_json_blobs("<html><body>hi</body></html>") == []
+
+    def test_end_to_end_picks_real_pair_price_over_single_ticket(self):
+        html = (
+            '<script id="__NEXT_DATA__" type="application/json">'
+            '{"listings": [{"price": 599, "quantity": 2}, {"price": 390, "quantity": 1}]}'
+            "</script>"
+        )
+
+        blobs = common.extract_embedded_json_blobs(html)
+        listings = []
+        for blob in blobs:
+            listings.extend(common.extract_listings(blob))
+        best = common.lowest_pair_price(listings)
+
+        assert best["price_per_ticket"] == 599.0
 
 
 class TestLowestPairPrice:
