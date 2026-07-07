@@ -217,6 +217,31 @@ class TestCheckPriceDiagnostic:
         assert "ticketGroups" in result["diagnostic"]
 
 
+class TestSummarizeCapturedPayloads:
+    def test_finds_nested_list_not_just_top_level(self):
+        # reproduces the real production case: the first captured payload
+        # is empty pagination metadata, and the real data is nested one
+        # level deep in a later payload, not at the top level
+        captured = [
+            {"meta": {"pagination": {"page": None}}, "listings": []},
+            {"data": {"ticketGroups": [{"retailPrice": 599, "availableTicketCount": 2}]}},
+        ]
+
+        summary = common.summarize_captured_payloads(captured)
+
+        assert "payload[0]" in summary
+        assert "payload[1]" in summary
+        assert "retailPrice" in summary
+        assert "599" in summary
+
+    def test_empty_captured_list_returns_empty_string(self):
+        assert common.summarize_captured_payloads([]) == ""
+
+    def test_handles_non_dict_non_list_payloads(self):
+        summary = common.summarize_captured_payloads(["a string", 42, None])
+        assert "payload[0]" in summary
+
+
 class TestLowestPairPrice:
     def test_ignores_single_seat_listings(self):
         listings = [

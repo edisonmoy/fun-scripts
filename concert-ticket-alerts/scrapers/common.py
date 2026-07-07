@@ -342,6 +342,53 @@ def lowest_pair_price(listings):
     return min(pairs, key=lambda ln: ln["price_per_ticket"])
 
 
+def _find_lists(payload, out):
+    """Recursively collect every list found anywhere in payload's tree -
+    real API responses often nest the actual data a level or two deep
+    (e.g. payload["data"]["ticketGroups"]), same as extract_listings
+    already has to handle.
+    """
+    if isinstance(payload, dict):
+        for value in payload.values():
+            _find_lists(value, out)
+    elif isinstance(payload, list):
+        out.append(payload)
+        for item in payload:
+            _find_lists(item, out)
+
+
+def summarize_captured_payloads(captured):
+    """Diagnostic summary of every captured JSON payload: top-level shape,
+    and, for the biggest list found anywhere in any of them (searched
+    recursively, not just top-level fields), a sample item. A single
+    payload can look empty (e.g. pagination metadata with `"listings": []`)
+    while the real data sits in a different captured response or nested
+    deeper - dumping just the first payload's top level missed that.
+    """
+    summaries = []
+    biggest_list = []
+
+    for i, payload in enumerate(captured):
+        if isinstance(payload, dict):
+            summaries.append(f"payload[{i}] dict keys={list(payload.keys())[:10]}")
+        elif isinstance(payload, list):
+            summaries.append(f"payload[{i}] list len={len(payload)}")
+        else:
+            summaries.append(f"payload[{i}] {type(payload).__name__}")
+
+        found = []
+        _find_lists(payload, found)
+        for lst in found:
+            if len(lst) > len(biggest_list):
+                biggest_list = lst
+
+    text = " | ".join(summaries)
+    if biggest_list:
+        sample_item = json.dumps(biggest_list[0])[:1000]
+        text += f" | largest list anywhere (len={len(biggest_list)}) first item: {sample_item}"
+    return text
+
+
 def check_price(url, api_url_pattern):
     """Full pipeline for one site: capture network JSON, extract a real
     2-together price if possible, otherwise fall back to the crude text
@@ -377,13 +424,14 @@ def check_price(url, api_url_pattern):
     if not diagnostic:
         if result.captured:
             # We captured real JSON but extract_listings' generic
-            # price/quantity key-matching found nothing usable in it -
-            # dump a sample so the real key names are visible instead of
-            # guessing at extract_listings' regex blind again.
-            sample = json.dumps(result.captured[0])[:1500]
+            # price/quantity key-matching found nothing usable in it.
+            # Summarize every payload (not just the first - one can look
+            # empty, e.g. pagination metadata with "listings": [], while
+            # the real data sits in a different captured response).
             diagnostic = (
                 f"captured {len(result.captured)} JSON payload(s) but found no "
-                f"quantity-aware listing dicts in them; sample payload: {sample}"
+                f"quantity-aware listing dicts in them; "
+                f"{summarize_captured_payloads(result.captured)}"
             )
         elif fallback_price is None:
             diagnostic = "no price found in fallback text"
