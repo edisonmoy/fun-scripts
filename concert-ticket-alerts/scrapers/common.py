@@ -289,34 +289,67 @@ def _numeric(value):
     return None
 
 
+def _extract_vividseats_ticket(payload):
+    """Vivid Seats' real individual-listing schema, from payload["tickets"]
+    in its captured internal API response. Confirmed against real captured
+    data: {"s": "Promenade Reserved 527", "r": "15", "q": "1",
+    "p": "294.50", "i": "VB16030960293", "aip": "397.46", ...} - "p" is
+    price per ticket, "q" is quantity in that specific listing, "s" is
+    section, "r" is row, "i" is a real alphanumeric listing id.
+
+    Distinguished from payload["groups"] (a *different*, superficially
+    similar "l"/"h"/"q" price-range-per-section schema this project
+    previously mistook for individual listings - see the removed
+    _extract_vividseats_listing below): groups has no row field and its
+    "q" means "count of listings in this section", not a purchasable
+    quantity. Requiring p+q+r+s together as a fingerprint is specific
+    enough to avoid both that shape and unrelated JSON.
+    """
+    if not ({"p", "q", "r", "s"} <= payload.keys()):
+        return None
+    try:
+        return {
+            "price_per_ticket": float(payload["p"]),
+            "quantity": int(payload["q"]),
+            "section": payload.get("s"),
+            "row": payload.get("r"),
+        }
+    except (TypeError, ValueError):
+        return None
+
+
 def extract_listings(payload, _out=None):
     """Best-effort, schema-agnostic scan of a captured JSON blob for
     listing-shaped dicts: anything with both a price-like and a
     quantity-like field, anywhere in the tree.
 
-    This is intentionally schema-agnostic - the real StubHub/Vivid Seats
-    API shapes weren't observable while building this (see README), so
-    hardcoding exact key paths would just be guessing. Tighten this to the
-    real keys once a real payload has been seen (e.g. via an escalated
-    diagnostic snippet).
+    This is intentionally schema-agnostic - the real StubHub API shape
+    wasn't observable while building this (see README), so hardcoding
+    exact key paths would just be guessing. Tighten this to the real keys
+    once a real payload has been seen (e.g. via an escalated diagnostic
+    snippet). Vivid Seats' real schema *was* observed (see
+    _extract_vividseats_ticket above) and is checked first.
 
-    NOTE: an earlier version of this function special-cased a Vivid Seats
-    payload shape with keys "l"/"q"/"productionId" as price/quantity/event
-    id. That was wrong - the "l"/"h" fields with "si"/"li"/"pi" (seller/
+    NOTE: an earlier version of this function special-cased a *different*
+    Vivid Seats payload shape with keys "l"/"q"/"productionId" as price/
+    quantity/event id (from payload["groups"], not payload["tickets"]).
+    That was wrong - the "l"/"h" fields with "si"/"li"/"pi" (seller/
     listing/product id) left blank and geometric fields (ang, dst, rx, ry,
     s3d, p3d) turned out to be seat-map heatmap/visualization data (a price
     *range* per map zone), not individual bookable listings, and it was
     silently returning a wrong price at fake "high" confidence - worse
-    than the honest low-confidence fallback it replaced. Removed. See
-    summarize_captured_payloads() for the follow-up: it now looks for
-    listing-like semantically-named fields (tickets/listings/groups)
-    instead of just "biggest list found anywhere", which is what grabbed
-    the heatmap data in the first place.
+    than the honest low-confidence fallback it replaced. Removed in favor
+    of the real per-listing schema above, found via
+    summarize_captured_payloads()'s semantically-named-field search.
     """
     if _out is None:
         _out = []
 
     if isinstance(payload, dict):
+        vividseats_ticket = _extract_vividseats_ticket(payload)
+        if vividseats_ticket:
+            _out.append(vividseats_ticket)
+
         price_val = qty_val = section_val = row_val = None
         for key, value in payload.items():
             if PRICE_KEY_RE.search(key) and price_val is None:
