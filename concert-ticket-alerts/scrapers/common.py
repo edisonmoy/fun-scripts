@@ -1,7 +1,9 @@
+import json
 import logging
 import random
 import re
 import time
+from urllib.parse import urlsplit
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
@@ -15,11 +17,17 @@ NON_TICKET_LINE_RE = re.compile(
     r"parking|fee|delivery|shipping|donation|merch|vip package|add-?on",
     re.I,
 )
+# A line like "$390 - $3,052+" is a price-range summary stat (often a
+# filter bar showing the site-wide min/max regardless of the current
+# quantity filter), not an individual listing - it should never win
+# "lowest price" over an actual listing.
+PRICE_RANGE_LINE_RE = re.compile(r"\$[\d,]+\s*-\s*\$[\d,]+")
 
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-)
+# Deliberately NOT overriding user_agent: a hardcoded UA string that
+# doesn't match the browser's real Client Hints headers / TLS fingerprint
+# is itself a bot-detection signal (inconsistent fingerprint surfaces are
+# more suspicious than a consistent, honestly-reported one). Let whichever
+# browser we launch self-report natively across every surface instead.
 
 # Very small stealth pass: hides the most common automation tells that
 # basic bot-detection checks for. Not a guarantee against Akamai/PerimeterX
@@ -30,6 +38,25 @@ window.chrome = { runtime: {} };
 Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
 Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
 """
+
+
+def _launch_browser(p):
+    """Prefer a real installed Chrome binary over Playwright's bundled
+    Chromium - GitHub Actions' ubuntu-latest runners ship Chrome stable by
+    default, and a real Chrome's TLS/JA3 fingerprint and Client Hints are
+    more convincing to bot detection than the bundled build's. Falls back
+    to bundled Chromium wherever real Chrome isn't installed (e.g. local
+    dev, other runner images).
+    """
+    launch_args = {
+        "headless": True,
+        "args": ["--disable-blink-features=AutomationControlled"],
+    }
+    try:
+        return p.chromium.launch(channel="chrome", **launch_args)
+    except Exception:
+        logger.info("real Chrome channel unavailable, falling back to bundled Chromium")
+        return p.chromium.launch(**launch_args)
 
 BLOCK_TEXT_MARKERS = [
     "pardon the interruption",
@@ -42,6 +69,34 @@ BLOCK_TEXT_MARKERS = [
     "unusual traffic",
     "are you a robot",
 ]
+
+# Many SEO-conscious sites (Next.js etc.) server-render their full listing
+# dataset directly into the HTML as a JSON blob, rather than fetching it via
+# a separate XHR/fetch call after load. A network-response listener never
+# sees that data at all - these patterns pull it straight out of the HTML.
+EMBEDDED_JSON_PATTERNS = [
+    re.compile(r'<script[^>]*id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>', re.S),
+    re.compile(r"window\.__NEXT_DATA__\s*=\s*(\{.*?\});", re.S),
+    re.compile(r"window\.__INITIAL_STATE__\s*=\s*(\{.*?\});", re.S),
+    re.compile(r"window\.__APOLLO_STATE__\s*=\s*(\{.*?\});", re.S),
+]
+
+
+def extract_embedded_json_blobs(html):
+    """Best-effort scan of raw page HTML for SSR-embedded JSON. Regex over
+    HTML/JS is inherently fragile (can't handle a literal '};' inside a
+    string value, for instance) but is a reasonable tradeoff here - a
+    missed blob just means falling through to network capture or the text
+    heuristic, not a wrong answer.
+    """
+    blobs = []
+    for pattern in EMBEDDED_JSON_PATTERNS:
+        for match in pattern.findall(html):
+            try:
+                blobs.append(json.loads(match))
+            except json.JSONDecodeError:
+                continue
+    return blobs
 
 
 class FetchResult:
@@ -81,12 +136,8 @@ def fetch_with_capture(url, api_url_pattern, retries=3, timeout_ms=30000):
         logger.info("attempt %d/%d: fetching %s", attempt, retries, url)
         try:
             with sync_playwright() as p:
-                browser = p.chromium.launch(
-                    headless=True,
-                    args=["--disable-blink-features=AutomationControlled"],
-                )
+                browser = _launch_browser(p)
                 context = browser.new_context(
-                    user_agent=USER_AGENT,
                     viewport={"width": 1366, "height": 900},
                     locale="en-US",
                     timezone_id="America/New_York",
@@ -106,6 +157,20 @@ def fetch_with_capture(url, api_url_pattern, retries=3, timeout_ms=30000):
 
                 page.on("response", on_response)
 
+                if attempt == 1:
+                    # Warm up with a homepage visit first, so the deep-link
+                    # event page is reached via a natural referrer/cookie
+                    # chain instead of a bare cold hit - real visitors
+                    # essentially never teleport straight to a deep link.
+                    # Best-effort: if this fails for any reason, proceed
+                    # straight to the real target anyway.
+                    try:
+                        origin = f"{urlsplit(url).scheme}://{urlsplit(url).netloc}"
+                        page.goto(origin, timeout=10000, wait_until="domcontentloaded")
+                        time.sleep(random.uniform(1.0, 2.5))
+                    except Exception:
+                        pass
+
                 time.sleep(random.uniform(0.5, 2.0))  # avoid an instant, robotic navigation
                 resp = page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
                 http_status = resp.status if resp else None
@@ -120,6 +185,7 @@ def fetch_with_capture(url, api_url_pattern, retries=3, timeout_ms=30000):
                 except PlaywrightTimeoutError:
                     logger.info("page never went fully idle, proceeding with what was captured")
                 text = page.inner_text("body")
+                html = page.content()
                 browser.close()
 
             if _looks_blocked(http_status, text):
@@ -130,9 +196,11 @@ def fetch_with_capture(url, api_url_pattern, retries=3, timeout_ms=30000):
                     "blocked", http_status=http_status, text=text, diagnostic=text[:2000]
                 )
             else:
+                embedded = extract_embedded_json_blobs(html)
+                captured.extend(embedded)
                 logger.info(
-                    "attempt %d/%d: ok (http_status=%s, %d JSON responses captured)",
-                    attempt, retries, http_status, len(captured),
+                    "attempt %d/%d: ok (http_status=%s, %d network JSON + %d embedded JSON)",
+                    attempt, retries, http_status, len(captured) - len(embedded), len(embedded),
                 )
                 return FetchResult(
                     "ok", http_status=http_status, captured=captured, text=text
@@ -155,12 +223,13 @@ def lowest_sane_price(text):
     """Cheapest $ amount in `text` that looks like a plausible ticket price.
 
     Crude fallback for when network-JSON capture finds nothing usable:
-    drops lines that look like parking/fees/other non-ticket line items,
-    then filters remaining $ amounts using config.MIN_SANE_TICKET_PRICE /
-    MAX_SANE_TICKET_PRICE.
+    drops lines that look like parking/fees/other non-ticket line items or
+    a price-range summary stat, then filters remaining $ amounts using
+    config.MIN_SANE_TICKET_PRICE / MAX_SANE_TICKET_PRICE.
     """
     ticket_lines = [
-        line for line in text.splitlines() if not NON_TICKET_LINE_RE.search(line)
+        line for line in text.splitlines()
+        if not NON_TICKET_LINE_RE.search(line) and not PRICE_RANGE_LINE_RE.search(line)
     ]
     prices = [
         float(p.replace(",", ""))
