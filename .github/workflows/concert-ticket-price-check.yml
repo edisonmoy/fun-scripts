@@ -1,4 +1,4 @@
-name: Noah Kahan price check
+name: Concert ticket price check
 
 on:
   schedule:
@@ -20,13 +20,13 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        working-directory: noah-kahan-alerts
+        working-directory: concert-ticket-alerts
         run: |
           pip install -r requirements.txt
           playwright install --with-deps chromium
 
       - name: Run price check
-        working-directory: noah-kahan-alerts
+        working-directory: concert-ticket-alerts
         env:
           SEATGEEK_CLIENT_ID: ${{ secrets.SEATGEEK_CLIENT_ID }}
           ALERT_EMAIL_FROM: ${{ secrets.ALERT_EMAIL_FROM }}
@@ -40,6 +40,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add noah-kahan-alerts/data/*.jsonl noah-kahan-alerts/data/scraper_health.json
+          git add concert-ticket-alerts/data/*.jsonl concert-ticket-alerts/data/scraper_health.json
           git diff --cached --quiet || git commit -m "Update price history"
           git push

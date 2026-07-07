@@ -1,12 +1,12 @@
-name: Noah Kahan checks
+name: Concert ticket checks
 
 on:
   push:
     paths:
-      - "noah-kahan-alerts/**"
+      - "concert-ticket-alerts/**"
   pull_request:
     paths:
-      - "noah-kahan-alerts/**"
+      - "concert-ticket-alerts/**"
 
 jobs:
   ruff:
@@ -22,7 +22,7 @@ jobs:
         run: pip install ruff
 
       - name: Run ruff
-        working-directory: noah-kahan-alerts
+        working-directory: concert-ticket-alerts
         run: ruff check .
 
   pytest:
@@ -35,9 +35,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        working-directory: noah-kahan-alerts
+        working-directory: concert-ticket-alerts
         run: pip install -r requirements-dev.txt
 
       - name: Run tests
-        working-directory: noah-kahan-alerts
+        working-directory: concert-ticket-alerts
         run: pytest -q

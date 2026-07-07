@@ -1,13 +1,15 @@
 import statistics
 
-import config
 import seatgeek_api
 import storage
 
 
-def snapshot_tour():
-    """Pull current stats for every tour date and log each one's history."""
-    events = seatgeek_api.get_tour_events(config.SEATGEEK_PERFORMER_SLUG)
+def snapshot_tour(event_key, performer_slug):
+    """Pull current stats for every date on `performer_slug`'s tour and log
+    each one's history, namespaced under `event_key` so different watched
+    events never collide in storage.
+    """
+    events = seatgeek_api.get_tour_events(performer_slug)
     snapshots = []
     for event in events:
         stats = event.get("stats", {})
@@ -21,12 +23,12 @@ def snapshot_tour():
             "median_price": stats.get("median_price"),
             "listing_count": stats.get("listing_count"),
         }
-        storage.append_record(f"tour_event_{record['id']}", record)
+        storage.append_record(f"{event_key}__tour_event_{record['id']}", record)
         snapshots.append(record)
     return snapshots
 
 
-def build_signal(snapshots, target_event_id):
+def build_signal(event_key, snapshots, target_event_id):
     """Compare the target show against the rest of the tour and its own trend.
 
     Returns a short human-readable summary, or None if there isn't enough
@@ -55,7 +57,7 @@ def build_signal(snapshots, target_event_id):
             f"(${tour_median:.0f}) across the other {len(others)} tour dates."
         )
 
-    history = storage.load_records(f"tour_event_{target_event_id}")
+    history = storage.load_records(f"{event_key}__tour_event_{target_event_id}")
     price_history = [r["lowest_price"] for r in history if r.get("lowest_price") is not None]
     listing_history = [r["listing_count"] for r in history if r.get("listing_count") is not None]
 
