@@ -1,3 +1,4 @@
+import logging
 import random
 import re
 import time
@@ -5,6 +6,8 @@ import time
 from playwright.sync_api import sync_playwright
 
 import config
+
+logger = logging.getLogger(__name__)
 
 PRICE_RE = re.compile(r"\$([0-9]{1,4}(?:,[0-9]{3})*)(?:\.[0-9]{2})?")
 NON_TICKET_LINE_RE = re.compile(
@@ -74,6 +77,7 @@ def fetch_with_capture(url, api_url_pattern, retries=3, timeout_ms=30000):
     last_result = FetchResult("error", diagnostic="no attempts made")
 
     for attempt in range(1, retries + 1):
+        logger.info("attempt %d/%d: fetching %s", attempt, retries, url)
         try:
             with sync_playwright() as p:
                 browser = p.chromium.launch(
@@ -108,18 +112,30 @@ def fetch_with_capture(url, api_url_pattern, retries=3, timeout_ms=30000):
                 browser.close()
 
             if _looks_blocked(http_status, text):
+                logger.warning(
+                    "attempt %d/%d: blocked (http_status=%s)", attempt, retries, http_status
+                )
                 last_result = FetchResult(
                     "blocked", http_status=http_status, text=text, diagnostic=text[:2000]
                 )
             else:
+                logger.info(
+                    "attempt %d/%d: ok (http_status=%s, %d JSON responses captured)",
+                    attempt, retries, http_status, len(captured),
+                )
                 return FetchResult(
                     "ok", http_status=http_status, captured=captured, text=text
                 )
         except Exception as exc:
+            logger.warning(
+                "attempt %d/%d: raised %s: %s", attempt, retries, type(exc).__name__, exc
+            )
             last_result = FetchResult("error", diagnostic=f"{type(exc).__name__}: {exc}")
 
         if attempt < retries:
-            time.sleep(2 ** attempt + random.uniform(0, 1))
+            delay = 2 ** attempt + random.uniform(0, 1)
+            logger.info("retrying in %.1fs", delay)
+            time.sleep(delay)
 
     return last_result
 

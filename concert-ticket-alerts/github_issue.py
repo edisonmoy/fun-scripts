@@ -1,6 +1,9 @@
+import logging
 import os
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 LABEL = "scraper-blocked"
 
@@ -49,19 +52,23 @@ def escalate(source, diagnostic):
     )
     existing = _find_open_issue(title)
     if existing:
-        requests.post(
+        resp = requests.post(
             f"{_api_base()}/issues/{existing['number']}/comments",
             headers=_headers(),
             json={"body": f"Still blocked as of this run.\n\n{body}"},
             timeout=15,
         )
+        resp.raise_for_status()
+        logger.info("commented on existing issue #%s for %s", existing["number"], source)
     else:
-        requests.post(
+        resp = requests.post(
             f"{_api_base()}/issues",
             headers=_headers(),
             json={"title": title, "body": body, "labels": [LABEL]},
             timeout=15,
         )
+        resp.raise_for_status()
+        logger.warning("opened a new GitHub issue for %s", source)
 
 
 def resolve(source):
@@ -70,15 +77,18 @@ def resolve(source):
     existing = _find_open_issue(title)
     if not existing:
         return
-    requests.patch(
+    resp = requests.patch(
         f"{_api_base()}/issues/{existing['number']}",
         headers=_headers(),
         json={"state": "closed"},
         timeout=15,
     )
-    requests.post(
+    resp.raise_for_status()
+    resp = requests.post(
         f"{_api_base()}/issues/{existing['number']}/comments",
         headers=_headers(),
         json={"body": f"`{source}` is reporting healthy data again - closing."},
         timeout=15,
     )
+    resp.raise_for_status()
+    logger.info("closed issue #%s for %s", existing["number"], source)
