@@ -289,21 +289,49 @@ def _numeric(value):
     return None
 
 
+def _extract_vividseats_listing(payload):
+    """Vivid Seats' internal listings API uses a minified schema with
+    single-letter keys instead of "price"/"quantity" - confirmed against a
+    real captured payload: {"productionId": 6642335, "l": "621.00" (low/
+    listing price per ticket, as a string), "q": "3" (quantity, as a
+    string), "n": "Field A1" (section), ...}. Single letters like "l"/"q"
+    are too ambiguous to add to the generic schema-agnostic scan below
+    (huge false-positive risk on unrelated JSON), so this requires the
+    "productionId" key too as a fingerprint unique enough to this schema.
+    """
+    if not ({"l", "q", "productionId"} <= payload.keys()):
+        return None
+    try:
+        return {
+            "price_per_ticket": float(payload["l"]),
+            "quantity": int(payload["q"]),
+            "section": payload.get("n"),
+            "row": None,
+        }
+    except (TypeError, ValueError):
+        return None
+
+
 def extract_listings(payload, _out=None):
     """Best-effort, schema-agnostic scan of a captured JSON blob for
     listing-shaped dicts: anything with both a price-like and a
     quantity-like field, anywhere in the tree.
 
-    This is intentionally schema-agnostic - the real StubHub/Vivid Seats
-    API shapes weren't observable while building this (see README), so
-    hardcoding exact key paths would just be guessing. Tighten this to the
-    real keys once a real payload has been seen (e.g. via an escalated
-    diagnostic snippet).
+    This is intentionally schema-agnostic - the real StubHub API shape
+    wasn't observable while building this (see README), so hardcoding
+    exact key paths would just be guessing. Tighten this to the real keys
+    once a real payload has been seen (e.g. via an escalated diagnostic
+    snippet). Vivid Seats' real schema *was* observed (see
+    _extract_vividseats_listing above) and is checked first.
     """
     if _out is None:
         _out = []
 
     if isinstance(payload, dict):
+        vividseats_listing = _extract_vividseats_listing(payload)
+        if vividseats_listing:
+            _out.append(vividseats_listing)
+
         price_val = qty_val = section_val = row_val = None
         for key, value in payload.items():
             if PRICE_KEY_RE.search(key) and price_val is None:
