@@ -21,12 +21,19 @@ def send_email(subject, body):
 
 
 def check_price_drop(
-    source, price_per_ticket, floor_before, price_target_per_ticket, pct_drop_threshold
+    source, price_per_ticket, floor_before, price_target_per_ticket, pct_drop_threshold,
+    confidence=None,
 ):
     """Return an alert reason string if this price is a significant drop, else None.
 
     Fires on either condition: hitting the flat dollar target, or falling
     pct_drop_threshold percent below the lowest price seen so far.
+
+    confidence="low" means the price came from the crude fallback text
+    scrape rather than a real quantity-aware listing from captured JSON -
+    it isn't structurally guaranteed to be for 2 seats together, so the
+    reason is flagged as an unverified estimate rather than presented as
+    fact.
     """
     if price_per_ticket is None:
         return None
@@ -45,4 +52,11 @@ def check_price_drop(
 
     if not reasons:
         return None
-    return f"{source}: ${price_per_ticket:.0f}/ticket - " + " and ".join(reasons)
+
+    reason = f"{source}: ${price_per_ticket:.0f}/ticket - " + " and ".join(reasons)
+    if confidence == "low":
+        reason += (
+            " [UNVERIFIED ESTIMATE - not confirmed as 2 seats together, "
+            "double-check before buying]"
+        )
+    return reason

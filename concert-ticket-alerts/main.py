@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 
 
-def check_source(namespace, price_per_ticket, event):
+def check_source(namespace, price_per_ticket, event, confidence=None):
     """Log a price reading and return an alert reason if it's a significant drop."""
     if price_per_ticket is None:
         logger.warning("[%s] no price found this run", namespace)
@@ -28,6 +28,7 @@ def check_source(namespace, price_per_ticket, event):
     return alerts.check_price_drop(
         namespace, price_per_ticket, floor_before,
         event.price_target_per_ticket, event.pct_drop_threshold,
+        confidence=confidence,
     )
 
 
@@ -59,7 +60,7 @@ def check_scraped_source(namespace, scraper, url, event):
             logger.exception("[%s] failed to resolve GitHub issue", namespace)
 
     price = result.get("price_per_ticket")
-    reason = check_source(namespace, price, event)
+    reason = check_source(namespace, price, event, confidence=result.get("confidence"))
     return result["status"], price, reason
 
 

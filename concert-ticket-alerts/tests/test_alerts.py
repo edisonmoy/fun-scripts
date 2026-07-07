@@ -61,3 +61,26 @@ def test_alert_uses_event_specific_thresholds():
         price_target_per_ticket=50, pct_drop_threshold=PCT_DROP_THRESHOLD,
     )
     assert reason is None
+
+
+def test_low_confidence_price_is_flagged_as_unverified():
+    # a price from the text-fallback scrape isn't guaranteed to be for 2
+    # seats together (it could be a single-ticket price) - the alert must
+    # say so rather than presenting it as a confirmed pair price
+    reason = alerts.check_price_drop(
+        "test", 390, floor_before=680,
+        price_target_per_ticket=PRICE_TARGET, pct_drop_threshold=PCT_DROP_THRESHOLD,
+        confidence="low",
+    )
+    assert reason is not None
+    assert "UNVERIFIED ESTIMATE" in reason
+
+
+def test_high_confidence_price_is_not_flagged():
+    reason = alerts.check_price_drop(
+        "test", 390, floor_before=680,
+        price_target_per_ticket=PRICE_TARGET, pct_drop_threshold=PCT_DROP_THRESHOLD,
+        confidence="high",
+    )
+    assert reason is not None
+    assert "UNVERIFIED ESTIMATE" not in reason
