@@ -5,6 +5,10 @@ import requests
 BASE_URL = "https://api.seatgeek.com/2"
 
 
+def is_configured():
+    return bool(os.environ.get("SEATGEEK_CLIENT_ID"))
+
+
 def _client_id():
     client_id = os.environ.get("SEATGEEK_CLIENT_ID")
     if not client_id:

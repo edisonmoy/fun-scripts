@@ -100,15 +100,21 @@ def process_event(event):
     source_results = []  # (source_name, status, price_per_ticket)
 
     # SeatGeek: reliable API, no scraping involved.
-    try:
-        stats = seatgeek_api.get_event_stats(event.seatgeek_event_id)
-        reason = check_source(f"{event.key}__seatgeek", stats["lowest_price"], event)
-        source_results.append(("seatgeek", "ok", stats["lowest_price"]))
-        if reason:
-            alert_reasons.append(reason)
-    except Exception:
-        logger.exception("[%s__seatgeek] FAILED", event.key)
-        source_results.append(("seatgeek", "error", None))
+    if not seatgeek_api.is_configured():
+        logger.warning(
+            "[%s__seatgeek] skipped - SEATGEEK_CLIENT_ID is not set", event.key
+        )
+        source_results.append(("seatgeek", "skipped", None))
+    else:
+        try:
+            stats = seatgeek_api.get_event_stats(event.seatgeek_event_id)
+            reason = check_source(f"{event.key}__seatgeek", stats["lowest_price"], event)
+            source_results.append(("seatgeek", "ok", stats["lowest_price"]))
+            if reason:
+                alert_reasons.append(reason)
+        except Exception:
+            logger.exception("[%s__seatgeek] FAILED", event.key)
+            source_results.append(("seatgeek", "error", None))
 
     # StubHub / Vivid Seats: best-effort scraping, may fail - don't let a
     # failure here block the other sources.
@@ -126,15 +132,20 @@ def process_event(event):
             logger.exception("[%s] FAILED", namespace)
             source_results.append((site_name, "error", None))
 
-    # Supply/demand signal across the whole tour.
+    # Supply/demand signal across the whole tour (also needs SeatGeek).
     signal_text = None
-    try:
-        snapshots = supply_demand.snapshot_tour(event.key, event.seatgeek_performer_slug)
-        signal_text = supply_demand.build_signal(event.key, snapshots, event.seatgeek_event_id)
-        if signal_text:
-            logger.info("[%s__supply_demand] %s", event.key, signal_text)
-    except Exception:
-        logger.exception("[%s__supply_demand] FAILED", event.key)
+    if not seatgeek_api.is_configured():
+        logger.warning(
+            "[%s__supply_demand] skipped - SEATGEEK_CLIENT_ID is not set", event.key
+        )
+    else:
+        try:
+            snapshots = supply_demand.snapshot_tour(event.key, event.seatgeek_performer_slug)
+            signal_text = supply_demand.build_signal(event.key, snapshots, event.seatgeek_event_id)
+            if signal_text:
+                logger.info("[%s__supply_demand] %s", event.key, signal_text)
+        except Exception:
+            logger.exception("[%s__supply_demand] FAILED", event.key)
 
     if alert_reasons:
         body_lines = [

@@ -12,6 +12,18 @@ def test_client_id_raises_when_missing(monkeypatch):
         seatgeek_api._client_id()
 
 
+def test_is_configured_false_when_missing(monkeypatch):
+    monkeypatch.delenv("SEATGEEK_CLIENT_ID", raising=False)
+
+    assert seatgeek_api.is_configured() is False
+
+
+def test_is_configured_true_when_set(monkeypatch):
+    monkeypatch.setenv("SEATGEEK_CLIENT_ID", "fake-id")
+
+    assert seatgeek_api.is_configured() is True
+
+
 def test_get_event_stats_parses_response(monkeypatch):
     monkeypatch.setenv("SEATGEEK_CLIENT_ID", "fake-id")
     fake_response = MagicMock()
