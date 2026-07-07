@@ -289,49 +289,34 @@ def _numeric(value):
     return None
 
 
-def _extract_vividseats_listing(payload):
-    """Vivid Seats' internal listings API uses a minified schema with
-    single-letter keys instead of "price"/"quantity" - confirmed against a
-    real captured payload: {"productionId": 6642335, "l": "621.00" (low/
-    listing price per ticket, as a string), "q": "3" (quantity, as a
-    string), "n": "Field A1" (section), ...}. Single letters like "l"/"q"
-    are too ambiguous to add to the generic schema-agnostic scan below
-    (huge false-positive risk on unrelated JSON), so this requires the
-    "productionId" key too as a fingerprint unique enough to this schema.
-    """
-    if not ({"l", "q", "productionId"} <= payload.keys()):
-        return None
-    try:
-        return {
-            "price_per_ticket": float(payload["l"]),
-            "quantity": int(payload["q"]),
-            "section": payload.get("n"),
-            "row": None,
-        }
-    except (TypeError, ValueError):
-        return None
-
-
 def extract_listings(payload, _out=None):
     """Best-effort, schema-agnostic scan of a captured JSON blob for
     listing-shaped dicts: anything with both a price-like and a
     quantity-like field, anywhere in the tree.
 
-    This is intentionally schema-agnostic - the real StubHub API shape
-    wasn't observable while building this (see README), so hardcoding
-    exact key paths would just be guessing. Tighten this to the real keys
-    once a real payload has been seen (e.g. via an escalated diagnostic
-    snippet). Vivid Seats' real schema *was* observed (see
-    _extract_vividseats_listing above) and is checked first.
+    This is intentionally schema-agnostic - the real StubHub/Vivid Seats
+    API shapes weren't observable while building this (see README), so
+    hardcoding exact key paths would just be guessing. Tighten this to the
+    real keys once a real payload has been seen (e.g. via an escalated
+    diagnostic snippet).
+
+    NOTE: an earlier version of this function special-cased a Vivid Seats
+    payload shape with keys "l"/"q"/"productionId" as price/quantity/event
+    id. That was wrong - the "l"/"h" fields with "si"/"li"/"pi" (seller/
+    listing/product id) left blank and geometric fields (ang, dst, rx, ry,
+    s3d, p3d) turned out to be seat-map heatmap/visualization data (a price
+    *range* per map zone), not individual bookable listings, and it was
+    silently returning a wrong price at fake "high" confidence - worse
+    than the honest low-confidence fallback it replaced. Removed. See
+    summarize_captured_payloads() for the follow-up: it now looks for
+    listing-like semantically-named fields (tickets/listings/groups)
+    instead of just "biggest list found anywhere", which is what grabbed
+    the heatmap data in the first place.
     """
     if _out is None:
         _out = []
 
     if isinstance(payload, dict):
-        vividseats_listing = _extract_vividseats_listing(payload)
-        if vividseats_listing:
-            _out.append(vividseats_listing)
-
         price_val = qty_val = section_val = row_val = None
         for key, value in payload.items():
             if PRICE_KEY_RE.search(key) and price_val is None:
@@ -385,16 +370,43 @@ def _find_lists(payload, out):
             _find_lists(item, out)
 
 
+LISTING_LIKE_KEY_RE = re.compile(r"ticket|listing|offer|inventory|^groups$", re.I)
+
+
+def _find_named_lists(payload, path, out):
+    """Recursively find list-valued fields whose *key name* suggests it's
+    the actual per-listing feed (tickets/listings/offers/groups), with the
+    dotted path it was found at. "biggest list anywhere" alone can grab
+    the wrong thing - e.g. a large seat-map heatmap/visualization array
+    that happens to outsize the real (smaller) listings array. A
+    semantically-named field is a much stronger signal of relevance than
+    raw size.
+    """
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            new_path = f"{path}.{key}" if path else key
+            if isinstance(value, list) and LISTING_LIKE_KEY_RE.search(key):
+                out.append((new_path, value))
+            _find_named_lists(value, new_path, out)
+    elif isinstance(payload, list):
+        for i, item in enumerate(payload):
+            _find_named_lists(item, f"{path}[{i}]", out)
+
+
 def summarize_captured_payloads(captured):
     """Diagnostic summary of every captured JSON payload: top-level shape,
-    and, for the biggest list found anywhere in any of them (searched
-    recursively, not just top-level fields), a sample item. A single
-    payload can look empty (e.g. pagination metadata with `"listings": []`)
-    while the real data sits in a different captured response or nested
-    deeper - dumping just the first payload's top level missed that.
+    any semantically-named listing-like fields (tickets/listings/offers/
+    groups) found anywhere with a sample item, and the single biggest list
+    found anywhere as a fallback. A payload can look empty (e.g. pagination
+    metadata with `"listings": []`) while the real data sits in a
+    different captured response or nested deeper - dumping just the first
+    payload's top level missed that, and picking purely by size can grab
+    an unrelated large array (see extract_listings' docstring for how that
+    went wrong once already).
     """
     summaries = []
     biggest_list = []
+    named_lists = []
 
     for i, payload in enumerate(captured):
         if isinstance(payload, dict):
@@ -410,10 +422,21 @@ def summarize_captured_payloads(captured):
             if len(lst) > len(biggest_list):
                 biggest_list = lst
 
+        _find_named_lists(payload, f"payload[{i}]", named_lists)
+
     text = " | ".join(summaries)
+
+    if named_lists:
+        named_summaries = []
+        for path, lst in named_lists[:5]:
+            sample = json.dumps(lst[0])[:600] if lst else "(empty)"
+            named_summaries.append(f"{path} (len={len(lst)}) first item: {sample}")
+        text += " || NAMED LISTS: " + " ;; ".join(named_summaries)
+
     if biggest_list:
         sample_item = json.dumps(biggest_list[0])[:1000]
         text += f" | largest list anywhere (len={len(biggest_list)}) first item: {sample_item}"
+
     return text
 
 
