@@ -2,10 +2,17 @@ import traceback
 
 import alerts
 import config
+import github_issue
+import health
 import seatgeek_api
 import storage
 import supply_demand
 from scrapers import stubhub, vividseats
+
+# Consecutive blocked/error runs before we open a GitHub issue for a source.
+# 3 runs at the 15-minute cron cadence is ~45 minutes of sustained failure -
+# enough to rule out one flaky load without sitting on a real block for long.
+ESCALATION_THRESHOLD = 3
 
 
 def check_source(name, price_per_ticket):
@@ -18,6 +25,35 @@ def check_source(name, price_per_ticket):
     storage.append_record(name, {"price_per_ticket": price_per_ticket})
     print(f"[{name}] ${price_per_ticket:.0f}/ticket (previous floor: {floor_before})")
     return alerts.check_price_drop(name, price_per_ticket, floor_before)
+
+
+def check_scraped_source(name, scraper, url):
+    result = scraper.check_price(url)
+    consecutive, just_recovered = health.record_outcome(name, result["status"])
+    print(
+        f"[{name}] status={result['status']} confidence={result.get('confidence')} "
+        f"price={result.get('price_per_ticket')}"
+    )
+
+    if result["status"] in ("blocked", "error"):
+        if consecutive >= ESCALATION_THRESHOLD:
+            try:
+                github_issue.escalate(name, result.get("diagnostic", ""))
+                print(f"[{name}] escalated to GitHub issue (failed {consecutive}x in a row)")
+            except Exception:
+                print(f"[{name}] failed to escalate to GitHub:")
+                traceback.print_exc()
+        return None
+
+    if just_recovered:
+        try:
+            github_issue.resolve(name)
+            print(f"[{name}] recovered - resolved GitHub issue")
+        except Exception:
+            print(f"[{name}] failed to resolve GitHub issue:")
+            traceback.print_exc()
+
+    return check_source(name, result.get("price_per_ticket"))
 
 
 def main():
@@ -40,12 +76,11 @@ def main():
         ("vividseats", vividseats, config.VIVIDSEATS_URL),
     ]:
         try:
-            price = scraper.get_lowest_price_per_ticket(url)
-            reason = check_source(name, price)
+            reason = check_scraped_source(name, scraper, url)
             if reason:
                 alert_reasons.append(reason)
         except Exception:
-            print(f"[{name}] FAILED (scraper likely needs updating - see README):")
+            print(f"[{name}] FAILED:")
             traceback.print_exc()
 
     # Supply/demand signal across the whole tour.

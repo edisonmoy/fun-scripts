@@ -11,17 +11,33 @@ counts) and price across the whole tour as a buy-timing signal.
   core of the system - no scraping, no bot-detection risk.
 - **StubHub / Vivid Seats**: no free public API exists, so these are
   scraped with a headless browser (Playwright). Both sites run bot
-  detection (confirmed: they 403 plain HTTP requests), so these scrapers
-  are best-effort. They extract the cheapest plausible `$` amount from the
-  rendered page rather than a guaranteed "2 seats together" price. Expect
-  to need to fix selectors/approach after watching a few real runs - check
-  the Action logs (`[stubhub] FAILED` / `[vividseats] FAILED`) if a source
-  stops reporting.
+  detection (confirmed: they 403 plain HTTP requests). The scraper
+  (`scrapers/common.py`) works in tiers:
+  1. Launch with a stealth pass (patched `navigator.webdriver`, realistic
+     UA/viewport/locale/timezone) and jittered pacing/retries.
+  2. Listen on the network layer and capture the site's own internal JSON
+     responses (listings/GraphQL calls), then scan them for listing-shaped
+     data (a price + quantity together) so we get a real "2 tickets
+     together" price instead of a guess. This is schema-agnostic since the
+     real API shape wasn't observable while building it - see "Known
+     limitations".
+  3. If no usable JSON was captured, fall back to the cheapest plausible
+     `$` amount in the rendered page text (marked `confidence: low`).
+  4. If the response looks like a bot-detection challenge (403/429/503, or
+     page text matching known challenge-page phrases), the run is marked
+     `blocked` instead of guessing at bad data.
+- **Self-healing loop**: `health.py` tracks consecutive blocked/error runs
+  per source. After 3 in a row (~45 min), `github_issue.py` opens a GitHub
+  issue labeled `scraper-blocked` with a diagnostic snippet from the
+  failure. A scheduled Claude session periodically checks for that label
+  and patches the scraper. The issue auto-closes once a source reports
+  healthy data again.
 - **Supply/demand signal**: every run also pulls every date on the tour
   from SeatGeek and compares this show's price/listing trend against the
   rest of the tour (see `supply_demand.py`).
 - Runs on a GitHub Actions cron every 15 minutes (`.github/workflows/noah-kahan-price-check.yml`),
-  committing price history back to `data/*.jsonl` so trends persist across runs.
+  committing price history back to `data/*.jsonl` and `data/scraper_health.json`
+  so trends and failure streaks persist across runs.
 - Emails fire when either: the price hits your flat dollar target, or it
   drops `PCT_DROP_THRESHOLD`% below the lowest price seen so far for that
   source. Both are configurable in `config.py`.
@@ -50,6 +66,9 @@ Edit `config.py`:
 - `MIN_SANE_TICKET_PRICE` / `MAX_SANE_TICKET_PRICE` - sanity bounds used to
   filter junk numbers out of scraped page text
 
+`ESCALATION_THRESHOLD` in `main.py` controls how many consecutive
+blocked/error runs trigger a GitHub issue (default 3).
+
 ## Linting
 
 `pip install -r requirements-dev.txt` then `ruff check .` from this
@@ -63,5 +82,13 @@ directory. Runs automatically in CI on any push/PR touching this folder
   the practical fallback is to treat SeatGeek's price as the primary
   signal - resale prices for the same show tend to move together across
   platforms.
-- The scraped "lowest price" is not guaranteed to be for 2 adjacent seats
-  specifically, just the cheapest ticket listed on the page.
+- `scrapers/stubhub.py` / `vividseats.py`'s `API_URL_PATTERN` (which
+  network responses to inspect for listing JSON) is a broad guess, not
+  observed against the real site - this sandbox's network policy blocks
+  these hosts, so it couldn't be verified live. If the "ok" (high
+  confidence) status never shows up in the logs, tighten the pattern once
+  a real captured request URL/payload is visible (e.g. from an escalated
+  issue's diagnostic snippet).
+- The text-heuristic fallback's "lowest price" still isn't guaranteed to
+  be for 2 adjacent seats specifically, just the cheapest ticket-looking
+  price on the page.
