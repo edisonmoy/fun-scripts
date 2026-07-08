@@ -293,9 +293,19 @@ def _extract_vividseats_ticket(payload):
     """Vivid Seats' real individual-listing schema, from payload["tickets"]
     in its captured internal API response. Confirmed against real captured
     data: {"s": "Promenade Reserved 527", "r": "15", "q": "1",
-    "p": "294.50", "i": "VB16030960293", "aip": "397.46", ...} - "p" is
-    price per ticket, "q" is quantity in that specific listing, "s" is
-    section, "r" is row, "i" is a real alphanumeric listing id.
+    "p": "294.50", "i": "VB16030960293", "aip": "397.46", ...} - "q" is
+    quantity in that specific listing, "s" is section, "r" is row, "i" is
+    a real alphanumeric listing id.
+
+    Price: use "aip" (all-in price), not "p". A live cross-check caught
+    this - our alert for section "Promenade Reserved 528" row "9" said
+    $444, the live site's *same listing* (confirmed by matching section+
+    row, "Lowest Price in Section" badge) showed $599 labeled "Fees
+    Incl.". $599/$444 = 1.349, matching the aip/p ratio in the original
+    sample data (397.46/294.50 = 1.350) almost exactly - "p" is the base
+    price before fees, "aip" is what the site actually displays and what
+    a buyer actually pays. Falls back to "p" if "aip" is missing/
+    unparseable, still better than nothing.
 
     Distinguished from payload["groups"] (a *different*, superficially
     similar "l"/"h"/"q" price-range-per-section schema this project
@@ -308,14 +318,26 @@ def _extract_vividseats_ticket(payload):
     if not ({"p", "q", "r", "s"} <= payload.keys()):
         return None
     try:
-        return {
-            "price_per_ticket": float(payload["p"]),
-            "quantity": int(payload["q"]),
-            "section": payload.get("s"),
-            "row": payload.get("r"),
-        }
+        quantity = int(payload["q"])
+        section = payload.get("s")
+        row = payload.get("r")
     except (TypeError, ValueError):
         return None
+
+    try:
+        price = float(payload["aip"])
+    except (KeyError, TypeError, ValueError):
+        try:
+            price = float(payload["p"])
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "price_per_ticket": price,
+        "quantity": quantity,
+        "section": section,
+        "row": row,
+    }
 
 
 def extract_listings(payload, _out=None):

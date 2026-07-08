@@ -129,9 +129,10 @@ class TestExtractListings:
 
     def test_parses_real_vividseats_ticket_schema(self):
         # the actual payload["tickets"] item shape captured from the live
-        # site: "p" is price, "q" is quantity, "s" is section, "r" is row,
-        # "i" is a real alphanumeric listing id (unlike the heatmap/groups
-        # shape's empty seller/listing/product id fields above)
+        # site: "q" is quantity, "s" is section, "r" is row, "i" is a real
+        # alphanumeric listing id (unlike the heatmap/groups shape's empty
+        # seller/listing/product id fields above). Price uses "aip" (all-in,
+        # fees included) not "p" (base price) - see next test for why.
         real_ticket = {
             "s": "Promenade Reserved 527", "r": "15", "q": "1", "p": "294.50",
             "i": "VB16030960293", "d": "527", "aip": "397.46",
@@ -142,10 +143,38 @@ class TestExtractListings:
 
         assert listings == [
             {
-                "price_per_ticket": 294.5, "quantity": 1,
+                "price_per_ticket": 397.46, "quantity": 1,
                 "section": "Promenade Reserved 527", "row": "15",
             }
         ]
+
+    def test_prefers_aip_all_in_price_over_base_price(self):
+        # regression test: caught via a live cross-check. Our alert for
+        # section "Promenade Reserved 528" row "9" said $444 (the "p"
+        # field), but the live site's *same listing* (matched by section
+        # + row) showed $599 labeled "Fees Incl.". $599/$444 = 1.349,
+        # matching the aip/p ratio in the original sample data
+        # (397.46/294.50 = 1.350) almost exactly - "p" is pre-fee, "aip"
+        # is the real displayed/payable price.
+        payload = {"s": "Promenade Reserved 528", "r": "9", "q": "2", "p": "444", "aip": "599"}
+
+        listings = common.extract_listings(payload)
+
+        assert listings[0]["price_per_ticket"] == 599.0
+
+    def test_falls_back_to_base_price_when_aip_missing(self):
+        payload = {"s": "A", "r": "1", "q": "2", "p": "500"}
+
+        listings = common.extract_listings(payload)
+
+        assert listings[0]["price_per_ticket"] == 500.0
+
+    def test_falls_back_to_base_price_when_aip_unparseable(self):
+        payload = {"s": "A", "r": "1", "q": "2", "p": "500", "aip": "call for price"}
+
+        listings = common.extract_listings(payload)
+
+        assert listings[0]["price_per_ticket"] == 500.0
 
     def test_vividseats_groups_shape_is_still_ignored_not_tickets(self):
         # "groups" (section price-range summaries) superficially looks
