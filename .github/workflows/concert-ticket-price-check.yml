@@ -1,8 +1,11 @@
 name: Concert ticket price check
 
 on:
-  schedule:
-    - cron: "*/15 * * * *"
+  # Scheduled checks are disabled: the only watched event (Noah Kahan at
+  # Citi Field, 2026-07-19) has passed, so there is nothing to alert on.
+  # Re-enable this cron if a future event is added to WATCHED_EVENTS.
+  # schedule:
+  #   - cron: "*/15 * * * *"
   workflow_dispatch: {}
 
 permissions:
