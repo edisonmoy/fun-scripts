@@ -1,0 +1,25 @@
+# Deploy the MCP server (from the resy-sniper/ directory):
+#   fly launch --no-deploy --dockerfile deploy/Dockerfile.mcp --config deploy/fly.mcp.toml
+#   fly secrets set MCP_BEARER_TOKEN="$(openssl rand -hex 32)" \
+#                   RESY_API_KEY=... RESY_AUTH_TOKEN=... RESY_VENUE_ID=... \
+#                   ALERT_EMAIL_FROM=... ALERT_EMAIL_PASSWORD=...
+#   fly deploy --config deploy/fly.mcp.toml --dockerfile deploy/Dockerfile.mcp
+app = "resy-sniper-mcp"
+primary_region = "ewr"
+
+[build]
+  dockerfile = "Dockerfile.mcp"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # A connector opens a session when you use it and idles the rest of the
+  # time. Suspending between sessions is fine here (unlike the polling
+  # worker, which must stay up) - it costs a cold start, not a table.
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

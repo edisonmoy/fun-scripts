@@ -1,0 +1,21 @@
+{
+  "_comment": [
+    "Local stdio MCP server config. Works in Claude Code (.mcp.json in a",
+    "project) and in Claude Desktop (claude_desktop_config.json). Fill in",
+    "real credentials locally - don't commit them."
+  ],
+  "mcpServers": {
+    "resy-sniper": {
+      "command": "python3",
+      "args": ["/absolute/path/to/fun-scripts/resy-sniper/mcp_server.py"],
+      "env": {
+        "RESY_API_KEY": "",
+        "RESY_AUTH_TOKEN": "",
+        "RESY_VENUE_ID": "",
+        "RESY_LIVE_BOOKING": "0",
+        "ALERT_EMAIL_FROM": "",
+        "ALERT_EMAIL_PASSWORD": ""
+      }
+    }
+  }
+}

@@ -149,6 +149,65 @@ A `schedule:` workflow calling `python cli.py run --live` with repo secrets
 would work too, though Actions cron is best-effort and often runs several
 minutes late — fine for cancellations, no good for a drop.
 
+## Controlling it from Claude (MCP)
+
+`mcp_server.py` exposes the sniper as an MCP server, so you can drive it from
+a conversation instead of a terminal: *"what Saturdays are open at Pizza 4P's?"*,
+*"book the 7:30 on the 26th"*, *"cancel that"*.
+
+Eight tools, annotated so a client knows which ones are safe:
+
+| Tool | Read-only | What it does |
+| --- | --- | --- |
+| `get_config` | yes | active target + which guardrails are on |
+| `find_venue` | yes | name -> Resy venue id |
+| `check_availability` | yes | open slots, and which one the sniper would take |
+| `upcoming_target_dates` | yes | the dates being watched |
+| `list_reservations` | yes | the account's upcoming reservations |
+| `run_snipe` | **no** | one full pass; books if live booking is on |
+| `book_slot` | **no** | book one exact date/time |
+| `cancel_reservation` | **no** | cancel by `resy_token` |
+
+`book_slot` and `cancel_reservation` both require `confirm=True` and return a
+refusal without it, so a speculative tool call can't book or drop a table.
+Every guardrail above still applies underneath - the cancellation-fee ceiling
+is not overridable from a tool call.
+
+### Local (stdio) - simplest, works today
+
+```bash
+pip install -r requirements-mcp.txt
+python mcp_server.py            # speaks MCP on stdin/stdout
+```
+
+Point a local MCP client at it with `mcp.json.example` (copy into a project's
+`.mcp.json` for Claude Code, or into `claude_desktop_config.json` for Claude
+Desktop) and fill in the credentials.
+
+### Remote (streamable HTTP) - for a custom connector
+
+```bash
+fly launch --no-deploy --dockerfile deploy/Dockerfile.mcp --config deploy/fly.mcp.toml
+fly secrets set MCP_BEARER_TOKEN="$(openssl rand -hex 32)" RESY_API_KEY=... RESY_AUTH_TOKEN=...
+fly deploy --config deploy/fly.mcp.toml --dockerfile deploy/Dockerfile.mcp
+```
+
+Serves MCP at `https://<app>.fly.dev/mcp`. `MCP_BEARER_TOKEN` is mandatory -
+the server refuses to start without one, because an unauthenticated public URL
+that can book a restaurant table is not something to leave lying around. The
+token is compared in constant time; every request without it gets a 401.
+
+**One caveat worth knowing before you budget time for this.** Claude.ai custom
+connectors are built around OAuth 2.1 (with dynamic client registration); a
+static bearer token is not obviously something the "Add custom connector" UI
+accepts. This is a correct, authenticated remote MCP server and works with any
+client that can send an `Authorization` header - but if claude.ai requires the
+full OAuth handshake, that's an additional piece to build on top (the SDK has
+the hooks: `MCPServer(auth_server_provider=..., auth=AuthSettings(...))`).
+Anthropic's docs domains are blocked from the sandbox this was written in, so
+this is flagged rather than asserted either way. The local stdio path above
+has none of this complexity.
+
 ## Layout
 
 | File | Purpose |
@@ -159,6 +218,7 @@ minutes late — fine for cancellations, no good for a drop.
 | `notify.py` | Confirmation email |
 | `runner.py` | One pass over every target; shared by all entry points |
 | `cli.py` | `find-venue` / `check` / `run` / `watch` |
+| `mcp_server.py` | MCP server (stdio + streamable HTTP) for connector control |
 | `api/poll.py` | Vercel Cron handler |
 | `deploy/` | Fly.io Dockerfile + fly.toml |
 
@@ -178,3 +238,6 @@ minutes late — fine for cancellations, no good for a drop.
   `RESY_PREFERRED_START`/`END` if you'd rather bias early or late.
 - Only one target is configured. `config.TARGETS` is a list; add more
   `Target(...)` entries for other restaurants.
+- The MCP server was verified against the real SDK (tool listing, both confirm
+  guards, bearer auth returning 401/200, and a live MCP handshake over HTTP)
+  but not against claude.ai's connector UI - see the OAuth caveat above.

@@ -1,0 +1,14 @@
+# Fly.io: the MCP server, for driving the sniper from a Claude connector.
+# Separate from deploy/Dockerfile (the polling worker) - they're different
+# services and you may well want only one of them running.
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY requirements.txt requirements-mcp.txt ./
+RUN pip install --no-cache-dir -r requirements-mcp.txt
+
+COPY *.py ./
+
+EXPOSE 8080
+CMD ["python", "mcp_server.py", "--transport", "http"]

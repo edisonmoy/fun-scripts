@@ -280,3 +280,9 @@ class ResyClient:
         """The account's upcoming reservations. Used as the double-booking guard."""
         payload = self._request("GET", "/3/user/reservations", params={"limit": limit})
         return payload.get("reservations", []) or []
+
+    def cancel(self, resy_token):
+        """Cancel a reservation. Irreversible - the table goes back to the pool,
+        and any cancellation fee on the booking applies as Resy's policy states."""
+        self._request("POST", "/3/cancel", json={"resy_token": resy_token})
+        return True

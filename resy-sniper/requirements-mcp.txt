@@ -1,0 +1,5 @@
+# MCP server only. Kept out of requirements.txt so the Vercel cron function
+# and the Fly polling worker stay slim - neither of them needs the MCP stack.
+-r requirements.txt
+mcp>=2.2.0
+uvicorn
