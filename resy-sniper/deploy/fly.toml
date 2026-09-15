@@ -1,0 +1,22 @@
+# Deploy from the resy-sniper/ directory:
+#   fly launch --no-deploy --dockerfile deploy/Dockerfile --config deploy/fly.toml
+#   fly secrets set RESY_API_KEY=... RESY_AUTH_TOKEN=... RESY_VENUE_ID=... \
+#                   ALERT_EMAIL_FROM=... ALERT_EMAIL_PASSWORD=... RESY_LIVE_BOOKING=1
+#   fly deploy --config deploy/fly.toml --dockerfile deploy/Dockerfile
+app = "resy-sniper"
+primary_region = "ewr"  # Newark - closest region to Resy's NYC traffic
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  RESY_MIN_REQUEST_INTERVAL = "0.5"
+
+# No [http_service]: this is a worker with no inbound traffic, so it must
+# not be allowed to auto-stop. A stopped machine snipes nothing.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+[processes]
+  worker = "python cli.py watch --interval 20"
