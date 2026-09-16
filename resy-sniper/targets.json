@@ -5,5 +5,12 @@
     "venue_id": 98384,
     "request": "A Saturday dinner reservation for 2, flexible on time between 5pm and 9pm. No date flexibility beyond Saturdays. Look up to 8 weeks out.",
     "enabled": true
+  },
+  {
+    "key": "webapp-smoke-test",
+    "venue_name": "Test Venue",
+    "request": "test",
+    "enabled": false,
+    "dry_run": true
   }
 ]
