@@ -1,0 +1,35 @@
+name: Gmail recruiter triage
+
+on:
+  schedule:
+    # 13:00 UTC = 9:00 AM Eastern (EDT, UTC-4) / 8:00 AM Eastern (EST, UTC-5)
+    - cron: "0 13 * * *"
+  workflow_dispatch: {}
+
+# No write access needed - state lives in Postgres, nothing is committed
+# back to the repo.
+permissions: {}
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: gmail-recruiter-triage
+        run: pip install -r requirements.txt
+
+      - name: Run triage
+        working-directory: gmail-recruiter-triage
+        env:
+          GMAIL_CLIENT_ID: ${{ secrets.GMAIL_CLIENT_ID }}
+          GMAIL_CLIENT_SECRET: ${{ secrets.GMAIL_CLIENT_SECRET }}
+          GMAIL_REFRESH_TOKEN: ${{ secrets.GMAIL_REFRESH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python main.py

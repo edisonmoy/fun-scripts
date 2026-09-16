@@ -1,0 +1,154 @@
+import os
+from pathlib import Path
+
+import psycopg
+from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
+
+SCHEMA_PATH = Path(__file__).with_name("schema.sql")
+
+# Module-level connection cache. This runs as a short-lived GitHub Actions
+# job (one process, one run) so a single shared connection is simplest -
+# there's no server/thread-pool lifecycle to manage.
+_connection = None
+_schema_applied = False
+
+
+def _connect():
+    global _connection
+    if _connection is None or _connection.closed:
+        _connection = psycopg.connect(
+            os.environ["DATABASE_URL"], row_factory=dict_row, autocommit=True
+        )
+    return _connection
+
+
+def _apply_schema(conn):
+    """Apply schema.sql, which is written entirely as CREATE TABLE IF NOT
+    EXISTS / ON CONFLICT DO NOTHING, so it's safe to run on every process
+    start regardless of whether the dashboard (a separate Node app sharing
+    this same Postgres database) has already applied it.
+    """
+    global _schema_applied
+    if _schema_applied:
+        return
+    with conn.cursor() as cur:
+        cur.execute(SCHEMA_PATH.read_text())
+    _schema_applied = True
+
+
+def get_connection():
+    """Return a live connection, applying schema.sql idempotently the first
+    time it's called in this process.
+    """
+    conn = _connect()
+    _apply_schema(conn)
+    return conn
+
+
+def get_preferences():
+    """Return the single preferences row as a dict."""
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM preferences WHERE id = 1")
+        return cur.fetchone()
+
+
+def is_thread_processed(thread_id):
+    """True if `thread_id` already has a triage_records row (any status)."""
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM triage_records WHERE gmail_thread_id = %s", (thread_id,))
+        return cur.fetchone() is not None
+
+
+def upsert_triage_record(
+    thread_id,
+    received_at,
+    sender,
+    subject,
+    category,
+    extracted,
+    rationale,
+    gmail_draft_id,
+    status,
+    draft_subject=None,
+    draft_body=None,
+):
+    """Insert or update the triage_records row for `thread_id`. Returns the
+    row's id. `draft_subject`/`draft_body` are the actual reply text (if a
+    draft was generated) so the dashboard can display it without needing
+    Gmail API access itself.
+    """
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO triage_records (
+                gmail_thread_id, received_at, sender, subject, category,
+                extracted_json, rationale, gmail_draft_id, status,
+                draft_subject, draft_body
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (gmail_thread_id) DO UPDATE SET
+                received_at = EXCLUDED.received_at,
+                sender = EXCLUDED.sender,
+                subject = EXCLUDED.subject,
+                category = EXCLUDED.category,
+                extracted_json = EXCLUDED.extracted_json,
+                rationale = EXCLUDED.rationale,
+                gmail_draft_id = EXCLUDED.gmail_draft_id,
+                status = EXCLUDED.status,
+                draft_subject = EXCLUDED.draft_subject,
+                draft_body = EXCLUDED.draft_body,
+                updated_at = now()
+            RETURNING id
+            """,
+            (
+                thread_id,
+                received_at,
+                sender,
+                subject,
+                category,
+                Jsonb(extracted),
+                rationale,
+                gmail_draft_id,
+                status,
+                draft_subject,
+                draft_body,
+            ),
+        )
+        return cur.fetchone()["id"]
+
+
+def get_approved_pending():
+    """Rows the dashboard marked to send; the next run should send each
+    one's existing Gmail draft.
+    """
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM triage_records WHERE status = 'approved_pending'")
+        return cur.fetchall()
+
+
+def mark_sent(record_id):
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE triage_records SET status = 'sent', updated_at = now() WHERE id = %s",
+            (record_id,),
+        )
+
+
+def get_last_run_at():
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute("SELECT last_run_at FROM run_state WHERE id = 1")
+        row = cur.fetchone()
+        return row["last_run_at"] if row else None
+
+
+def set_last_run_at(dt):
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute("UPDATE run_state SET last_run_at = %s WHERE id = 1", (dt,))
