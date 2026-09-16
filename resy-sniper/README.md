@@ -105,6 +105,76 @@ python cli.py watch --interval 2 --max-minutes 10 --live   # drop-time snipe
 
 Start with `check`, then `run` (dry), and only then `--live`.
 
+## Testing it for real
+
+Nothing here has touched the live Resy API, so work up to a booking in
+stages. Each stage proves the one thing the next stage assumes.
+
+Credentials go in `.env` on your own machine. Don't paste an
+`X-Resy-Auth-Token` into a chat window or a terminal you're sharing - it is
+a bearer credential for your Resy account, and anyone holding it can book
+and cancel as you until it expires.
+
+```bash
+cd resy-sniper
+pip install -r requirements-dev.txt
+cp .env.example .env        # fill in RESY_API_KEY + RESY_AUTH_TOKEN
+set -a && source .env && set +a
+```
+
+**1. Do the credentials work?** `find-venue` is the cheapest possible probe -
+read-only, and it produces the venue ID you need anyway.
+
+```bash
+python cli.py find-venue "Pizza 4P's"
+```
+
+An auth error here means the token is stale; anything else failing means the
+API key is wrong. Put the number it prints in `RESY_VENUE_ID`.
+
+**2. Does slot parsing match reality?** Compare this against what resy.com
+shows you for the same dates - if the site lists times and this prints
+nothing, the parsing is wrong, not the restaurant.
+
+```bash
+python cli.py check
+```
+
+**3. Does the fee logic work?** A dry run goes all the way through
+`/3/details` - the call that reports the cancellation fee - and stops just
+short of booking. This is the highest-value test in the list, because fee
+parsing is what decides whether the bot books silently or asks you.
+
+```bash
+python cli.py run --dry-run
+```
+
+**4. Does booking work?** Do this against an easy target first, not Pizza
+4P's on a Saturday. A sold-out restaurant can't tell you whether the code
+works - "no availability" and "broken" look identical. Pick somewhere with
+tables free this week, book, check resy.com, then cancel.
+
+```bash
+RESY_VENUE_ID=<easy target> RESY_WEEKDAYS=0,1,2,3,4,5,6 python cli.py run --live
+```
+
+**5. Then arm the real target.** Put the Pizza 4P's venue ID back, set
+`RESY_LIVE_BOOKING=1`, and deploy.
+
+### Confirming the double-booking guard
+
+The `/3/user/reservations` response shape was never verified (see Known
+gaps). Once you have a real reservation, dump it and check the guard is
+actually reading it:
+
+```bash
+python -c "import runner, json; print(json.dumps(runner.build_client().reservations()[:2], indent=2))"
+```
+
+If the venue id and date don't appear where `sniper.has_existing_reservation`
+looks for them, that guard is silently returning False - which means a
+stateless Vercel run could book the same night twice.
+
 ## Deploying
 
 ### Vercel Cron — for catching cancellations

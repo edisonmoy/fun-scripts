@@ -199,3 +199,33 @@ def test_snipe_falls_through_to_the_next_slot_when_one_is_taken(today):
     outcome = sniper.snipe(client, make_target(), live_booking=True, today=today)
 
     assert outcome.status == sniper.TAKEN
+
+
+# --- weekday override (testing affordance) ----------------------------
+
+def test_env_weekdays_parses_a_single_day(monkeypatch):
+    import config
+
+    monkeypatch.setenv("RESY_WEEKDAYS", "5")
+    assert config._env_weekdays("RESY_WEEKDAYS", (0,)) == (5,)
+
+
+def test_env_weekdays_parses_a_list(monkeypatch):
+    import config
+
+    monkeypatch.setenv("RESY_WEEKDAYS", "0,1,2,3,4,5,6")
+    assert config._env_weekdays("RESY_WEEKDAYS", (5,)) == (0, 1, 2, 3, 4, 5, 6)
+
+
+def test_env_weekdays_tolerates_trailing_separators(monkeypatch):
+    import config
+
+    monkeypatch.setenv("RESY_WEEKDAYS", "4,5,")
+    assert config._env_weekdays("RESY_WEEKDAYS", (5,)) == (4, 5)
+
+
+def test_env_weekdays_falls_back_when_unset(monkeypatch):
+    import config
+
+    monkeypatch.delenv("RESY_WEEKDAYS", raising=False)
+    assert config._env_weekdays("RESY_WEEKDAYS", (5,)) == (5,)

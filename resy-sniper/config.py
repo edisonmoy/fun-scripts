@@ -24,6 +24,19 @@ MIN_REQUEST_INTERVAL = float(os.environ.get("RESY_MIN_REQUEST_INTERVAL", 0.5))
 LIVE_BOOKING = os.environ.get("RESY_LIVE_BOOKING", "").lower() in ("1", "true", "yes")
 
 
+def _env_weekdays(name, default):
+    """Parse "5" or "4,5,6" from the environment into weekday ints.
+
+    Mostly a testing affordance: the real target is Saturdays, but when you
+    are smoke-testing against a restaurant that has tables free tomorrow you
+    want to scan every day without editing code.
+    """
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    return tuple(int(part) for part in raw.split(",") if part.strip() != "")
+
+
 def _env_time(name, default):
     """Parse "HH:MM" from the environment, falling back to `default`."""
     raw = os.environ.get(name)
@@ -86,7 +99,7 @@ TARGETS = [
         # and set RESY_VENUE_ID (or paste the number here).
         venue_id=int(os.environ.get("RESY_VENUE_ID", 0)),
         party_size=int(os.environ.get("RESY_PARTY_SIZE", 2)),
-        weekdays=(5,),  # Saturday
+        weekdays=_env_weekdays("RESY_WEEKDAYS", (5,)),  # default Saturday (Mon=0)
         days_ahead=int(os.environ.get("RESY_DAYS_AHEAD", 60)),
         preferred_start=_env_time("RESY_PREFERRED_START", time(18, 0)),
         preferred_end=_env_time("RESY_PREFERRED_END", time(21, 0)),
