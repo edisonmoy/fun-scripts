@@ -1,13 +1,13 @@
 name: Resy sniper deploy
 
 # Redeploys the always-on Fly.io bot whenever targets.json (or any other
-# resy-sniper source) changes on main - this is how the management webapp's
+# resy-sniper source) changes on master - this is how the management webapp's
 # edits actually reach the running bot, since targets.json is baked into
 # the Docker image rather than fetched at runtime.
 on:
   push:
     branches:
-      - main
+      - master
     paths:
       - "resy-sniper/**"
 

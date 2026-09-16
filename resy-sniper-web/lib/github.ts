@@ -1,5 +1,5 @@
 // Reads/writes resy-sniper/targets.json in the fun-scripts repo via the
-// GitHub Contents API. Committing to main is what actually changes what
+// GitHub Contents API. Committing to master is what actually changes what
 // the deployed bot watches - a GitHub Actions workflow (resy-sniper-deploy.yml)
 // redeploys the Fly.io app on every push touching resy-sniper/**, since
 // targets.json is baked into the bot's Docker image rather than fetched
@@ -8,7 +8,7 @@
 const OWNER = "edisonmoy";
 const REPO = "fun-scripts";
 const PATH = "resy-sniper/targets.json";
-const BRANCH = "main";
+const BRANCH = "master";
 
 export interface Target {
   key: string;
