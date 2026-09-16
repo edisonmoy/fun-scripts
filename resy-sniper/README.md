@@ -33,13 +33,18 @@ are about not making things worse, not about making this permitted.
 
 ## What it will and won't do on its own
 
-Auto-booking spends real money and reputation, so the defaults are
-conservative:
+The rule is **cost, not caution**: a reservation that is free to cancel
+gets booked the moment it appears, with no confirmation step - there is
+nothing to decide, and asking would just be friction. A reservation that
+puts money on your card is never taken on your behalf; you get the fee and
+the cancellation terms, and you decide.
+
+Everything else follows from that:
 
 | Guard | Default | Override |
 | --- | --- | --- |
 | Booking for real | **off** — dry run only, logs and emails what it *would* book | `RESY_LIVE_BOOKING=1` |
-| Slots with a cancellation fee | **refused** | `RESY_MAX_CANCELLATION_FEE=25` |
+| Slots with a cancellation fee | **not booked unattended** - reported to you with the price and terms | `RESY_MAX_CANCELLATION_FEE=25` |
 | Bar/counter stools | **skipped** (you asked for a table) | `RESY_ALLOW_BAR=1` |
 | Double-booking the same night | blocked by checking your existing reservations | — |
 | Request rate | 0.5s between every API call | `RESY_MIN_REQUEST_INTERVAL` |
@@ -168,10 +173,20 @@ Eight tools, annotated so a client knows which ones are safe:
 | `book_slot` | **no** | book one exact date/time |
 | `cancel_reservation` | **no** | cancel by `resy_token` |
 
-`book_slot` and `cancel_reservation` both require `confirm=True` and return a
-refusal without it, so a speculative tool call can't book or drop a table.
-Every guardrail above still applies underneath - the cancellation-fee ceiling
-is not overridable from a tool call.
+`book_slot` follows the cost rule: a free slot books straight away, while a
+slot with a cancellation fee books nothing and comes back as
+`needs_confirmation` carrying `cancellation_fee_usd` and
+`cancellation_policy`. Calling it again with `confirm=True` books at exactly
+that fee - your answer, made with the price in front of you, governs that one
+booking rather than the standing free-only ceiling.
+
+`cancel_reservation` still requires `confirm=True` every time. Cancelling
+costs you the table whether or not it costs money, so there is no free case
+to wave through.
+
+A tool call can override venue, party size and dates. It can never widen the
+unattended fee ceiling - only an explicit confirmation on a quoted price does
+that.
 
 ### Local (stdio) - simplest, works today
 

@@ -62,9 +62,11 @@ class Target:
     allow_bar_seating: bool = False
     bar_seating_keywords: tuple = ("bar", "counter", "stool")
 
-    # Hard ceiling on the cancellation fee this bot may commit you to,
-    # in dollars. 0 means: refuse to auto-book anything that puts a fee on
-    # your card. Raise it deliberately, not by accident.
+    # Hard ceiling on the cancellation fee this bot may commit you to
+    # *without asking*, in dollars. The default of 0 means: book free slots
+    # outright, and bring anything that costs money to you with the price
+    # and the terms so you can decide. Raising it widens what books
+    # unattended - do that deliberately, not by accident.
     max_cancellation_fee: float = 0.0
 
     # Extra addresses to notify on success, beyond ALERT_EMAIL_TO.

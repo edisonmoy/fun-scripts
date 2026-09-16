@@ -117,19 +117,31 @@ def has_existing_reservation(reservations, venue_id, day):
     return False
 
 
-def book_slot(client, target, day, slot, live_booking):
+def book_slot(client, target, day, slot, live_booking, fee_ceiling=None):
     """Take one ranked slot from config token -> confirmed reservation.
+
+    `fee_ceiling` is the most this call may commit the user to, in dollars.
+    It defaults to the target's configured ceiling, which is what every
+    unattended path (cron, worker, snipe pass) uses. An interactive caller
+    passes the exact fee the user just agreed to, after seeing the price and
+    the cancellation terms - their answer is the decision, so the standing
+    ceiling no longer applies to that one booking.
 
     Returns an Outcome. Raises nothing for the ordinary "someone beat us to
     it" case - that comes back as TAKEN so the caller can try the next slot.
     """
+    if fee_ceiling is None:
+        fee_ceiling = target.max_cancellation_fee
+
     try:
         details = client.get_booking_details(slot.token, day, target.party_size)
     except SlotUnavailable as exc:
         return Outcome(TAKEN, target, day, slot, reason=str(exc))
 
-    # Guard: never silently commit the user to a cancellation fee.
-    if details.cancellation_fee > target.max_cancellation_fee:
+    # A free slot is never worth interrupting anyone over; a slot that puts
+    # money on the card is never taken without a decision. That split is the
+    # whole policy, and this is where it's enforced.
+    if details.cancellation_fee > fee_ceiling:
         return Outcome(
             SKIPPED_FEE,
             target,
@@ -138,7 +150,7 @@ def book_slot(client, target, day, slot, live_booking):
             details,
             reason=(
                 f"slot carries a ${details.cancellation_fee:.2f} cancellation fee, "
-                f"above the ${target.max_cancellation_fee:.2f} ceiling "
+                f"above the ${fee_ceiling:.2f} ceiling "
                 f"(RESY_MAX_CANCELLATION_FEE). Policy: "
                 f"{details.cancellation_text or 'not stated'}"
             ),

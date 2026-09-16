@@ -80,20 +80,38 @@ def format_outcome(outcome):
         return subject, body
 
     if outcome.status == sniper.SKIPPED_FEE:
-        subject = f"Action needed: {target.name} slot skipped - {outcome.reason.split(',')[0]}"
-        body = "\n".join([
-            "A matching slot was found but deliberately NOT booked.",
+        # This slot costs something, so it's your call, not the bot's. The
+        # email exists to give you the two numbers you need to make it.
+        fee = outcome.details.cancellation_fee if outcome.details else None
+        policy = (outcome.details.cancellation_text if outcome.details else "") or "not stated"
+        fee_str = f"${fee:.2f}" if fee is not None else "unknown"
+
+        subject = (
+            f"Your call: {target.name} {outcome.day} at "
+            f"{slot.time_str if slot else '?'} - {fee_str} to cancel"
+        )
+        lines = [
+            "A matching slot is available, but it is not free to cancel,",
+            "so nothing was booked. Your decision:",
             "",
-            f"Restaurant: {target.name}",
-            f"Date:       {outcome.day}",
-            f"Time:       {slot.time_str if slot else '?'}",
+            f"Restaurant:        {target.name}",
+            f"Date:              {outcome.day}",
+            f"Time:              {slot.time_str if slot else '?'}",
+            f"Seating:           {slot.config_type or 'unspecified'}" if slot else "",
             "",
-            f"Reason: {outcome.reason}",
+            f"Cancellation fee:  {fee_str}",
+            f"Terms:             {policy}",
             "",
-            "Book it by hand if you're happy with the terms, or raise",
-            "RESY_MAX_CANCELLATION_FEE to let the sniper accept fees up to that amount.",
-        ])
-        return subject, body
+            "To take it: book by hand at https://resy.com, or ask the sniper to",
+            "book this exact slot and confirm the fee when it asks.",
+            "",
+            f"(Free slots are booked automatically; anything above the "
+            f"${target.max_cancellation_fee:.2f} ceiling comes to you like this. "
+            f"Raise RESY_MAX_CANCELLATION_FEE to widen what books unattended.)",
+        ]
+        if not slot:
+            lines = [line for line in lines if line != ""] or lines
+        return subject, "\n".join(line for line in lines if line is not None)
 
     return (
         f"No booking: {target.name}",

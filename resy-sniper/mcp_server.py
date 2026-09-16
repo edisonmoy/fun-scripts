@@ -187,11 +187,13 @@ async def check_availability(
 
 @mcp.tool(
     description="Run one snipe pass: scan target dates and book the best matching slot. "
-    "Respects the live-booking setting - set dry_run=false AND have live booking enabled "
-    "to actually book. Emails a confirmation on success.",
+    "Books free-to-cancel slots outright; a slot carrying a cancellation fee above the "
+    "configured ceiling is left alone and reported back for the user to decide on. "
+    "Emails a confirmation on success. Requires live booking to be enabled.",
     annotations=DESTRUCTIVE,
 )
-async def run_snipe(dry_run: bool = True) -> dict:
+async def run_snipe(dry_run: bool = False) -> dict:
+    """Set dry_run=True to see what would be booked without booking it."""
     live = config.LIVE_BOOKING and not dry_run
     client = await _client()
     outcomes = await _call(
@@ -215,9 +217,11 @@ async def run_snipe(dry_run: bool = True) -> dict:
 
 
 @mcp.tool(
-    description="Book one specific slot by date and time. Irreversible and may commit "
-    "the user to a cancellation fee. Requires confirm=True. Show the user the exact "
-    "date, time and fee first.",
+    description="Book one specific slot by date and time. If the slot is free to "
+    "cancel it books immediately - no confirmation needed. If it carries a "
+    "cancellation fee it books nothing and returns the fee and the cancellation "
+    "terms; show those to the user and call again with confirm=True only if they "
+    "agree to that exact amount.",
     annotations=DESTRUCTIVE,
 )
 async def book_slot(
@@ -227,13 +231,13 @@ async def book_slot(
     venue_id: int | None = None,
     party_size: int | None = None,
 ) -> dict:
-    """day is YYYY-MM-DD, time is 24-hour HH:MM as shown by check_availability."""
-    if not confirm:
-        return {
-            "status": "not_booked",
-            "detail": "confirm=True is required. Nothing was booked.",
-        }
+    """day is YYYY-MM-DD, time is 24-hour HH:MM as shown by check_availability.
 
+    confirm is only consulted when the slot actually costs something. A slot
+    with no cancellation fee is booked straight away - there is nothing for
+    the user to decide, and making them approve a free booking is friction
+    for its own sake.
+    """
     target = _target_for(venue_id, party_size, None, None)
     if not target.venue_id:
         return {"status": "error", "detail": "No venue_id set. Call find_venue first."}
@@ -248,14 +252,47 @@ async def book_slot(
             "available_times": sorted(s.start.strftime("%H:%M") for s in slots),
         }
 
-    outcome = await _call(sniper.book_slot, client, target, day, wanted[0], True)
+    slot = wanted[0]
+
+    # First attempt runs under the standing ceiling (free-only by default).
+    # A free slot books here and the user is never interrupted.
+    outcome = await _call(sniper.book_slot, client, target, day, slot, True)
+
+    if outcome.status == sniper.SKIPPED_FEE and outcome.details:
+        fee = outcome.details.cancellation_fee
+        if fee > 0 and not confirm:
+            return {
+                "status": "needs_confirmation",
+                "detail": (
+                    f"This slot is not free: cancelling costs ${fee:.2f}. "
+                    "Nothing was booked. Show the user the fee and the terms "
+                    "below, and call again with confirm=True only if they agree."
+                ),
+                "cancellation_fee_usd": fee,
+                "cancellation_policy": outcome.details.cancellation_text or "not stated",
+                "date": day,
+                "time": slot.time_str,
+                "seating": slot.config_type,
+            }
+        if fee > 0 and confirm:
+            # The user has seen the number and said yes, so that answer - not
+            # the standing free-only ceiling - governs this one booking. The
+            # retry also picks up a fresh book token, which the first attempt's
+            # has likely outlived (~3 minutes).
+            outcome = await _call(
+                lambda: sniper.book_slot(client, target, day, slot, True, fee_ceiling=fee)
+            )
+
     await _call(notify.notify, outcome)
     return {
         "status": outcome.status,
         "date": day,
-        "time": wanted[0].time_str,
-        "seating": wanted[0].config_type,
+        "time": slot.time_str,
+        "seating": slot.config_type,
         "confirmation": outcome.booking.confirmation if outcome.booking else None,
+        "cancellation_fee_usd": (
+            outcome.details.cancellation_fee if outcome.details else None
+        ),
         "cancellation_policy": (
             outcome.details.cancellation_text if outcome.details else None
         ),

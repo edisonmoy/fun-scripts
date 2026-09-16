@@ -37,19 +37,36 @@ def test_dry_run_email_is_clearly_marked_as_not_booked():
     assert "RESY_LIVE_BOOKING" in body
 
 
-def test_skipped_fee_email_explains_what_to_do():
+def test_priced_slot_email_leads_with_the_fee_and_terms():
+    """The email exists so you can decide - it has to carry both numbers."""
     outcome = sniper.Outcome(
         sniper.SKIPPED_FEE,
         make_target(),
         day="2026-09-19",
         slot=make_slot("19:30"),
+        details=make_details(fee=25.0),
         reason="slot carries a $25.00 cancellation fee, above the $0.00 ceiling",
     )
     subject, body = notify.format_outcome(outcome)
 
-    assert "Action needed" in subject
-    assert "NOT booked" in body
+    # The price belongs in the subject line - that's all you see on a phone.
+    assert "$25.00 to cancel" in subject
+    assert "Your call" in subject
+
+    assert "nothing was booked" in body
+    assert "Cancellation fee:  $25.00" in body
+    assert "Cancel 24h ahead" in body  # the actual terms, not just the number
     assert "RESY_MAX_CANCELLATION_FEE" in body
+
+
+def test_priced_slot_email_survives_missing_details():
+    outcome = sniper.Outcome(
+        sniper.SKIPPED_FEE, make_target(), day="2026-09-19", slot=make_slot("19:30")
+    )
+    subject, body = notify.format_outcome(outcome)
+
+    assert "unknown" in subject
+    assert "not stated" in body
 
 
 def test_no_email_for_routine_no_match(monkeypatch):
