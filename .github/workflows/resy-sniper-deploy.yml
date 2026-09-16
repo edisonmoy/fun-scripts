@@ -1,0 +1,26 @@
+name: Resy sniper deploy
+
+# Redeploys the always-on Fly.io bot whenever targets.json (or any other
+# resy-sniper source) changes on master - this is how the management webapp's
+# edits actually reach the running bot, since targets.json is baked into
+# the Docker image rather than fetched at runtime.
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - "resy-sniper/**"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        working-directory: resy-sniper
+        run: flyctl deploy --remote-only -a resy-sniper-snowy-field-9084
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
