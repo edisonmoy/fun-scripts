@@ -4,6 +4,11 @@
     "venue_name": "Pizza 4P's Brooklyn",
     "venue_id": 98384,
     "request": "A Saturday dinner reservation for 2, flexible on time between 5pm and 9pm. No date flexibility beyond Saturdays. Look up to 8 weeks out.",
-    "enabled": true
+    "enabled": true,
+    "booking": {
+      "day": "2026-09-19",
+      "time": "17:00",
+      "reservation_id": "jRN42SWlv0L_m2ISTwdkb6DcWApiCKYg9DoJ|Hk_IFKBUSUc7LmJGH5jCtwYsaC0A0116w1u3tb0n11IfIv9Jat9o|kLdicsbXJmHri1vRY=-b71465a51ff845fef59f36357aaa66b4beb8fc4d348008908c5b9aaa"
+    }
   }
 ]

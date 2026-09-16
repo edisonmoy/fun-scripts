@@ -25,6 +25,7 @@ def test_load_applies_defaults(tmp_path):
     assert t.party_size_override is None
     assert t.enabled is True
     assert t.dry_run is None
+    assert t.booking is None
 
 
 def test_load_respects_explicit_fields(tmp_path):
@@ -67,3 +68,18 @@ def test_load_rejects_duplicate_keys(tmp_path):
 
     with pytest.raises(ValueError):
         targets.load(path)
+
+
+def test_load_reads_booking_field(tmp_path):
+    path = _write(tmp_path, [
+        {
+            "key": "a",
+            "venue_name": "Venue A",
+            "request": "req a",
+            "booking": {"day": "2026-09-19", "time": "17:00", "reservation_id": "abc123"},
+        }
+    ])
+
+    loaded = targets.load(path)
+
+    assert loaded[0].booking == {"day": "2026-09-19", "time": "17:00", "reservation_id": "abc123"}

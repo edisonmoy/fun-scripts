@@ -4,9 +4,9 @@ import time
 
 import alerts
 import config
+import github_sync
 import request_parser
 import resy_api
-import state
 import targets as targets_module
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -70,7 +70,15 @@ def try_book(watch, day, slot, payment_method_id):
 
     result = resy_api.book(book_token, payment_method_id)
     reservation_id = result.get("resy_token") or result.get("reservation_id")
-    state.mark_booked(watch.key, day, resy_api.slot_time(slot), reservation_id)
+
+    try:
+        github_sync.record_booking(watch.key, day, resy_api.slot_time(slot), reservation_id)
+    except Exception:
+        logger.exception(
+            "[%s] booked but failed to record it in targets.json - the reservation itself "
+            "is real, this only affects whether the webapp/next restart knows about it",
+            watch.key,
+        )
 
     alerts.send_email(
         subject=f"Booked! {watch.target.venue_name} - {day}",
@@ -92,10 +100,8 @@ def build_watches():
         if not target.enabled:
             logger.info("[%s] disabled, skipping", target.key)
             continue
-        if state.is_booked(target.key):
-            logger.info(
-                "[%s] already booked: %s - skipping", target.key, state.get_booking(target.key)
-            )
+        if target.booking:
+            logger.info("[%s] already booked: %s - skipping", target.key, target.booking)
             continue
 
         criteria = request_parser.parse(target.request)

@@ -16,6 +16,35 @@ function emptyTarget(): Target {
   };
 }
 
+function formatReservation(day: string, time: string): string {
+  const date = new Date(`${day}T00:00:00Z`);
+  const dateStr = date.toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+  const [hStr, mStr] = time.split(":");
+  let h = parseInt(hStr, 10);
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  return `${dateStr} · ${h}:${mStr} ${ampm}`;
+}
+
+function StatusBadge({ target }: { target: Target }) {
+  if (target.booking) {
+    return (
+      <span className="badge badge-booked">
+        Booked · {formatReservation(target.booking.day, target.booking.time)}
+      </span>
+    );
+  }
+  if (target.enabled === false) {
+    return <span className="badge badge-paused">Paused</span>;
+  }
+  return <span className="badge badge-watching">Watching</span>;
+}
+
 export default function DashboardPage() {
   const [targets, setTargets] = useState<Target[] | null>(null);
   const [sha, setSha] = useState<string | null>(null);
@@ -56,7 +85,11 @@ export default function DashboardPage() {
   }
 
   function addTarget() {
-    setTargets([...(targets || []), emptyTarget()]);
+    setTargets([emptyTarget(), ...(targets || [])]);
+    // Scroll the new (first) card into view and focus its key field.
+    requestAnimationFrame(() => {
+      document.getElementById("target-key-0")?.focus();
+    });
   }
 
   async function save() {
@@ -109,6 +142,13 @@ export default function DashboardPage() {
     );
   }
 
+  const watching = targets
+    .map((t, i) => ({ t, i }))
+    .filter(({ t }) => !t.booking);
+  const booked = targets
+    .map((t, i) => ({ t, i }))
+    .filter(({ t }) => !!t.booking);
+
   return (
     <main>
       <div className="target-header">
@@ -121,20 +161,32 @@ export default function DashboardPage() {
         <button onClick={logout}>Log out</button>
       </div>
 
+      <div className="action-toolbar">
+        <button className="primary" onClick={addTarget}>
+          + Add target
+        </button>
+        <button className="primary" onClick={save} disabled={saving}>
+          {saving ? "Saving..." : "Save changes"}
+        </button>
+      </div>
+      {saveMessage && <div className={`status-message ${saveMessage.kind}`}>{saveMessage.text}</div>}
+
       {targets.length === 0 && (
-        <div className="empty-state">No targets yet - add one below.</div>
+        <div className="empty-state">No targets yet - add one above.</div>
       )}
 
-      {targets.map((t, i) => (
+      {watching.map(({ t, i }) => (
         <div className="card" key={i}>
           <div className="target-header">
             <input
+              id={`target-key-${i}`}
               className="target-key-input"
               placeholder="unique-key (e.g. pizza4ps-brooklyn-saturday)"
               value={t.key}
               onChange={(e) => updateTarget(i, { key: e.target.value })}
             />
             <div className="row-controls">
+              <StatusBadge target={t} />
               <label className="toggle-label">
                 <input
                   type="checkbox"
@@ -218,16 +270,30 @@ export default function DashboardPage() {
         </div>
       ))}
 
-      <div className="toolbar">
-        <button onClick={addTarget}>+ Add target</button>
-        <div className="toolbar-actions">
-          <button className="primary" onClick={save} disabled={saving}>
-            {saving ? "Saving..." : "Save changes"}
-          </button>
-        </div>
-      </div>
-
-      {saveMessage && <div className={`status-message ${saveMessage.kind}`}>{saveMessage.text}</div>}
+      {booked.length > 0 && (
+        <>
+          <h2 className="section-heading">Booked</h2>
+          {booked.map(({ t, i }) => (
+            <div className="card card-booked" key={i}>
+              <div className="target-header">
+                <div className="booked-title">
+                  <strong>{t.venue_name}</strong>
+                  <span className="booked-key">{t.key}</span>
+                </div>
+                <div className="row-controls">
+                  <StatusBadge target={t} />
+                  <button className="danger" onClick={() => removeTarget(i)}>
+                    Remove
+                  </button>
+                </div>
+              </div>
+              <div className="booked-detail">
+                Reservation ID: <code>{t.booking!.reservation_id}</code>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
     </main>
   );
 }

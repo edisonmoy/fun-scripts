@@ -24,3 +24,9 @@ POLL_JITTER_SECONDS = float(os.environ.get("RESY_POLL_JITTER_SECONDS", 0.5))
 
 AUTH_TOKEN = os.environ.get("RESY_AUTH_TOKEN")
 API_KEY = os.environ.get("RESY_API_KEY")
+
+# Fine-grained GitHub PAT scoped to just this repo, Contents: read/write.
+# Used by github_sync.py to record a booking back into targets.json once
+# a target books, so status survives a redeploy and the management webapp
+# can display it.
+GITHUB_TOKEN = os.environ.get("RESY_GITHUB_TOKEN")
