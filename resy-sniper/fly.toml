@@ -1,0 +1,23 @@
+# fly.toml app configuration file generated for resy-sniper-snowy-field-9084 on 2026-09-16T11:52:59-04:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'resy-sniper-snowy-field-9084'
+primary_region = 'ewr'
+
+[build]
+[processes]
+  app = 'python main.py'
+
+# No [http_service] - this is a background worker with nothing listening on
+# any port, not a web app. An http_service block here would make Fly health
+# check a port nothing answers on and could stop/restart the machine
+# thinking it's unhealthy.
+
+[[restart]]
+  policy = 'always'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '256mb'
