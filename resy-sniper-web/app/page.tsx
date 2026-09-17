@@ -74,6 +74,46 @@ function formatReservation(day: string, time: string): string {
   return `${dateStr} · ${h}:${mStr} ${ampm}`;
 }
 
+function ValidationPanel({ result }: { result: ValidationResult }) {
+  return (
+    <div className="validation-panel">
+      {result.venue && (
+        <div className="validation-line success">
+          ✓ Venue: {result.venue.name}
+          {result.venue.address ? ` — ${result.venue.address}` : ""}
+        </div>
+      )}
+      {result.venue_error && (
+        <div className="validation-line error">✗ Venue not found: {result.venue_error}</div>
+      )}
+      {result.criteria && (
+        <div className="validation-line success">
+          ✓ Parsed: party of {result.criteria.party_size},{" "}
+          {result.criteria.days_of_week.join("/")}, {result.criteria.time_window_start}–
+          {result.criteria.time_window_end}, next {result.criteria.lookahead_weeks} weeks
+          {result.criteria.notes && <div className="notes-hint">Note: {result.criteria.notes}</div>}
+        </div>
+      )}
+      {result.criteria_error && (
+        <div className="validation-line error">
+          ✗ Couldn&apos;t parse request: {result.criteria_error}
+        </div>
+      )}
+      {result.venue && result.criteria && (
+        <div className="validation-line">
+          {result.cancellation_preview && result.cancellation_preview.length > 0 ? (
+            <>
+              <strong>Cancellation terms preview:</strong> {result.cancellation_preview[0]}
+            </>
+          ) : (
+            <span className="notes-hint">{result.cancellation_preview_note}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StatusBadge({ target }: { target: Target }) {
   if (target.booking) {
     return (
@@ -349,6 +389,7 @@ export default function DashboardPage() {
       {watching.map(({ t, i }) => {
         const isEditing = editingKeys.has(t.key);
         const message = saveMessages[t.key];
+        const result = validationResults[t.key];
 
         if (!isEditing) {
           return (
@@ -362,6 +403,7 @@ export default function DashboardPage() {
               </div>
               {t.venue_display && <div className="notes-hint">{t.venue_display}</div>}
               <div className="notes-hint">{t.request}</div>
+              {result && <ValidationPanel result={result} />}
               <div className="card-actions">
                 <div className="card-actions-left">
                   <button className="danger" onClick={() => removeTarget(i)}>
@@ -375,7 +417,6 @@ export default function DashboardPage() {
           );
         }
 
-        const result = validationResults[t.key];
         const isNew = !serverTargets?.some((x) => x.key === t.key);
 
         return (
@@ -543,12 +584,7 @@ export default function DashboardPage() {
                   <div className="notes-hint">Loading cancellation terms...</div>
                 )}
 
-                <div className="card-actions">
-                  <div className="card-actions-left">
-                    <button className="danger" onClick={() => removeTarget(i)}>
-                      Remove from list
-                    </button>
-                  </div>
+                <div className="card-actions card-actions-end">
                   <button
                     className="danger"
                     onClick={() => cancelBooking(i)}
