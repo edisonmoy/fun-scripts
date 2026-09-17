@@ -26,7 +26,13 @@ class Target:
     request: str  # free-text description, parsed by request_parser.parse()
     venue_id: Optional[int] = None  # pin once resolved; skips a search call every restart
     enabled: bool = True
-    dry_run: Optional[bool] = None  # None = fall back to the global RESY_DRY_RUN
+    # True = "notify mode" (email on a match, don't book), False = "book
+    # mode" (book automatically), None = fall back to the global
+    # RESY_DRY_RUN. The dashboard presents this as Notify/Book mode -
+    # the field is still named dry_run here since that's the accurate
+    # description of what it gates (the /3/book call), not of the
+    # notify-mode behavior around it.
+    dry_run: Optional[bool] = None
     booking: Optional[dict] = None  # set by github_sync.record_booking() once booked
 
 

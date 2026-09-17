@@ -85,7 +85,7 @@ Each entry:
 | `venue_id` | no | Pin the exact venue once you've verified the search resolved correctly |
 | `request` | yes | Free-text description, including party size - see "How requests are parsed" below |
 | `enabled` | no (default `true`) | Set `false` to pause without deleting the target |
-| `dry_run` | no (default: falls back to `RESY_DRY_RUN`) | Per-target override - e.g. test-run a new target while others stay live |
+| `dry_run` | no (default: falls back to `RESY_DRY_RUN`) | `true` = **notify mode** (email on a match, don't book), `false` = **book mode**. The dashboard shows these as a Notify/Book toggle. |
 | `booking` | no | Set automatically by `github_sync.py` once this target books - `{day, time, party_size, reservation_id}`. Never set this by hand. |
 
 **To add, pause, or remove a target:** use the dashboard above, or edit
@@ -177,7 +177,7 @@ pip install -r requirements-dev.txt
 pytest                       # unit tests, no network/credentials needed
 
 export $(cat .env | xargs)   # or use direnv/python-dotenv, your call
-python main.py                # RESY_DRY_RUN=true by default - logs only, never books
+python main.py                # RESY_DRY_RUN=true by default - notify mode, emails on a match, never books
 ```
 
 Watch the logs. You should see each target's parsed `request` criteria
@@ -267,3 +267,19 @@ these env vars are global/shared settings:
   stored in `booking` and what the cancel flow re-looks-up a fresh
   `resy_token` from right before calling `/3/cancel` - never trust a
   stored `resy_token`.
+- Resy's `/4/find` can fail with a 500 on every single request for one
+  venue for several minutes straight while unrelated one-off requests
+  from a different source succeed the whole time (confirmed live) - looks
+  like either venue-specific flakiness or the polling IP getting
+  soft-throttled under sustained load, and there's no way to tell which
+  from here. `main.py` backs off exponentially (2x per consecutive
+  all-dates-failed round, capped at 30x) while this persists, resetting
+  the moment a round comes back clean, so a sustained bad stretch doesn't
+  turn into sustained hammering.
+- After some Fly deploys, a machine gets stuck in `stopped` right after
+  "Configuring firecracker" and never proceeds to actually running
+  `main.py`, even though the deploy itself reports success (confirmed
+  live, several times, always resolved by `fly machine start <id>`).
+  Looks like a Fly platform quirk with this app's rolling-deploy +
+  standby-machine setup, not anything in the code - if `fly status` shows
+  `stopped` a while after a deploy finished, that's the fix.

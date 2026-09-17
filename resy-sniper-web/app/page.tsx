@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { Target } from "@/lib/github";
 
 interface ValidationResult {
-  venue?: { id: number; name: string; neighborhood: string | null; city: string | null };
+  venue?: { id: number; name: string; neighborhood: string | null; address: string | null };
   venue_error?: string;
   criteria?: {
     party_size: number;
@@ -16,6 +16,8 @@ interface ValidationResult {
     notes: string;
   };
   criteria_error?: string;
+  cancellation_preview?: string[] | null;
+  cancellation_preview_note?: string;
 }
 
 interface LiveReservation {
@@ -24,14 +26,36 @@ interface LiveReservation {
   cancellation_policy: string[];
 }
 
+function randomSuffix(len = 6): string {
+  let out = "";
+  while (out.length < len) out += Math.random().toString(36).slice(2);
+  return out.slice(0, len);
+}
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/'/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+// Matches only the placeholder keys emptyTarget() generates - never a real
+// saved key - so a validated new target's key gets upgraded to a readable
+// slug exactly once, and an existing target's key is never touched.
+function isAutoKey(key: string): boolean {
+  return /^target-[a-z0-9]{6,8}$/.test(key);
+}
+
 function emptyTarget(): Target {
   return {
-    key: "",
+    key: `target-${randomSuffix()}`,
     venue_name: "",
     request: "",
     venue_id: null,
+    venue_display: null,
     enabled: true,
-    dry_run: true, // new targets default to test mode until validated
+    dry_run: true, // new targets default to notify mode until checked
   };
 }
 
@@ -67,14 +91,15 @@ function StatusBadge({ target }: { target: Target }) {
 
 export default function DashboardPage() {
   const [targets, setTargets] = useState<Target[] | null>(null);
+  const [serverTargets, setServerTargets] = useState<Target[] | null>(null);
   const [sha, setSha] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [savingIndex, setSavingIndex] = useState<number | null>(null);
+  const [editingKeys, setEditingKeys] = useState<Set<string>>(new Set());
+  const [checkingKey, setCheckingKey] = useState<string | null>(null);
   const [saveMessages, setSaveMessages] = useState<
-    Record<number, { text: string; kind: "success" | "error" } | undefined>
+    Record<string, { text: string; kind: "success" | "error" } | undefined>
   >({});
-  const [validating, setValidating] = useState<Record<number, boolean>>({});
-  const [validationResults, setValidationResults] = useState<Record<number, ValidationResult>>({});
+  const [validationResults, setValidationResults] = useState<Record<string, ValidationResult>>({});
   const [liveReservations, setLiveReservations] = useState<LiveReservation[] | null>(null);
   const [reservationsError, setReservationsError] = useState<string | null>(null);
   const [cancellingKey, setCancellingKey] = useState<string | null>(null);
@@ -89,6 +114,7 @@ export default function DashboardPage() {
       return;
     }
     setTargets(data.targets);
+    setServerTargets(data.targets);
     setSha(data.sha);
   }
 
@@ -117,57 +143,128 @@ export default function DashboardPage() {
 
   function removeTarget(index: number) {
     if (!targets) return;
-    if (!confirm(`Remove target "${targets[index].key || "(unnamed)"}"?`)) return;
+    if (!confirm(`Remove target "${targets[index].key}"?`)) return;
     setTargets(targets.filter((_, i) => i !== index));
   }
 
   function addTarget() {
-    setTargets([emptyTarget(), ...(targets || [])]);
+    const t = emptyTarget();
+    setTargets((prev) => [t, ...(prev || [])]);
+    setEditingKeys((prev) => new Set(prev).add(t.key));
     requestAnimationFrame(() => {
-      document.getElementById("target-key-0")?.focus();
+      document.getElementById(`target-venue-${t.key}`)?.focus();
     });
   }
 
-  async function validateTarget(index: number) {
+  function editTarget(key: string) {
+    setEditingKeys((prev) => new Set(prev).add(key));
+  }
+
+  function cancelEdit(index: number) {
     if (!targets) return;
     const t = targets[index];
-    setValidating((v) => ({ ...v, [index]: true }));
+    setEditingKeys((prev) => {
+      const next = new Set(prev);
+      next.delete(t.key);
+      return next;
+    });
+    const original = serverTargets?.find((x) => x.key === t.key);
+    if (original) {
+      const next = [...targets];
+      next[index] = original;
+      setTargets(next);
+    } else {
+      setTargets(targets.filter((_, i) => i !== index));
+    }
+  }
+
+  /** The single CTA for a Watching card: validates venue + request (and
+   * previews cancellation terms) first, and only saves if both checked out
+   * - saving an unvalidated target isn't possible from this button.
+   */
+  async function checkAndSave(index: number) {
+    if (!targets || sha === null) return;
+    const t = targets[index];
+    setCheckingKey(t.key);
+    setSaveMessages((m) => ({ ...m, [t.key]: undefined }));
+
     const res = await fetch("/api/validate-target", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ venue_name: t.venue_name, request: t.request }),
     });
     const data: ValidationResult = await res.json();
-    setValidating((v) => ({ ...v, [index]: false }));
-    setValidationResults((v) => ({ ...v, [index]: data }));
-    if (data.venue) {
-      updateTarget(index, { venue_id: data.venue.id });
-    }
-  }
+    setValidationResults((v) => ({ ...v, [t.key]: data }));
 
-  async function saveTarget(index: number) {
-    if (!targets || sha === null) return;
-    setSavingIndex(index);
-    setSaveMessages((m) => ({ ...m, [index]: undefined }));
-    const res = await fetch("/api/targets", {
+    if (!data.venue || !data.criteria) {
+      setCheckingKey(null);
+      setSaveMessages((m) => ({
+        ...m,
+        [t.key]: { text: "Fix the issue(s) above before saving.", kind: "error" },
+      }));
+      return;
+    }
+
+    const patch: Partial<Target> = {
+      venue_id: data.venue.id,
+      venue_display: [data.venue.name, data.venue.address || data.venue.neighborhood]
+        .filter(Boolean)
+        .join(" — "),
+    };
+    let newKey = t.key;
+    if (isAutoKey(t.key)) {
+      const dayPart = data.criteria.days_of_week.length === 1 ? slugify(data.criteria.days_of_week[0]) : "";
+      const base = [slugify(data.venue.name), dayPart].filter(Boolean).join("-") || slugify(data.venue.name);
+      const others = new Set(targets.filter((x) => x.key !== t.key).map((x) => x.key));
+      let candidate = base;
+      let n = 2;
+      while (others.has(candidate)) candidate = `${base}-${n++}`;
+      newKey = candidate;
+      patch.key = candidate;
+    }
+
+    const patchedTarget = { ...t, ...patch };
+    const patchedTargets = targets.map((x, idx) => (idx === index ? patchedTarget : x));
+    setTargets(patchedTargets);
+
+    if (newKey !== t.key) {
+      setEditingKeys((prev) => {
+        if (!prev.has(t.key)) return prev;
+        const next = new Set(prev);
+        next.delete(t.key);
+        next.add(newKey);
+        return next;
+      });
+      setValidationResults((v) => {
+        const { [t.key]: moved, ...rest } = v;
+        return moved ? { ...rest, [newKey]: moved } : v;
+      });
+    }
+
+    const saveRes = await fetch("/api/targets", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        targets,
+        targets: patchedTargets,
         sha,
-        message: `Update target "${targets[index].key || "(unnamed)"}" via web UI`,
+        message: `Update target "${newKey}" via web UI`,
       }),
     });
-    const data = await res.json();
-    setSavingIndex(null);
-    if (!res.ok) {
-      setSaveMessages((m) => ({ ...m, [index]: { text: data.error || "Save failed", kind: "error" } }));
+    const saveData = await saveRes.json();
+    setCheckingKey(null);
+    if (!saveRes.ok) {
+      setSaveMessages((m) => ({ ...m, [newKey]: { text: saveData.error || "Save failed", kind: "error" } }));
       return;
     }
     setSaveMessages((m) => ({
       ...m,
-      [index]: { text: "Saved - bot redeploys in ~1-2 min.", kind: "success" },
+      [newKey]: { text: "Checked and saved - bot redeploys in ~1-2 min.", kind: "success" },
     }));
+    setEditingKeys((prev) => {
+      const next = new Set(prev);
+      next.delete(newKey);
+      return next;
+    });
     await load();
   }
 
@@ -232,11 +329,13 @@ export default function DashboardPage() {
         <div>
           <h1>Resy sniper targets</h1>
           <p className="subtitle">
-            Reservations the bot is watching. Each card's Save button commits every change on the
-            page to GitHub, which redeploys the bot.
+            Reservations the bot is watching. "Check &amp; Save" validates the venue and request
+            before committing every change on the page to GitHub, which redeploys the bot.
           </p>
         </div>
-        <button onClick={logout}>Log out</button>
+        <button className="ghost logout-button" onClick={logout}>
+          Log out
+        </button>
       </div>
 
       <div className="action-toolbar">
@@ -248,33 +347,56 @@ export default function DashboardPage() {
       {targets.length === 0 && <div className="empty-state">No targets yet - add one above.</div>}
 
       {watching.map(({ t, i }) => {
-        const result = validationResults[i];
-        return (
-          <div className="card" key={i}>
-            <div className="target-header">
-              <input
-                id={`target-key-${i}`}
-                className="target-key-input"
-                placeholder="short-unique-key"
-                value={t.key}
-                onChange={(e) => updateTarget(i, { key: e.target.value })}
-              />
-              <div className="row-controls">
+        const isEditing = editingKeys.has(t.key);
+        const message = saveMessages[t.key];
+
+        if (!isEditing) {
+          return (
+            <div className="card" key={t.key}>
+              <div className="target-header">
+                <div className="booked-title">
+                  <strong>{t.venue_name || "(unnamed venue)"}</strong>
+                  <span className="booked-key">{t.key}</span>
+                </div>
                 <StatusBadge target={t} />
               </div>
+              {t.venue_display && <div className="notes-hint">{t.venue_display}</div>}
+              <div className="notes-hint">{t.request}</div>
+              <div className="card-actions">
+                <div className="card-actions-left">
+                  <button className="danger" onClick={() => removeTarget(i)}>
+                    Remove
+                  </button>
+                </div>
+                <button onClick={() => editTarget(t.key)}>Edit</button>
+              </div>
+              {message && <div className={`status-message ${message.kind}`}>{message.text}</div>}
+            </div>
+          );
+        }
+
+        const result = validationResults[t.key];
+        const isNew = !serverTargets?.some((x) => x.key === t.key);
+
+        return (
+          <div className="card" key={t.key}>
+            <div className="target-header">
+              <div className="target-key-display">{t.key}</div>
+              <StatusBadge target={t} />
             </div>
 
             <div className="field-row">
               <label>Venue name</label>
               <div>
                 <input
+                  id={`target-venue-${t.key}`}
                   type="text"
                   placeholder="e.g. Pizza 4P's Brooklyn"
                   value={t.venue_name}
                   onChange={(e) => updateTarget(i, { venue_name: e.target.value })}
                 />
-                {t.venue_id != null && !result?.venue_error && (
-                  <div className="notes-hint">Resolved to venue #{t.venue_id}</div>
+                {t.venue_display && !result?.venue_error && (
+                  <div className="notes-hint">{t.venue_display}</div>
                 )}
               </div>
             </div>
@@ -307,15 +429,27 @@ export default function DashboardPage() {
             </div>
 
             <div className="field-row">
-              <label>Test mode</label>
-              <label className="toggle-label">
-                <input
-                  type="checkbox"
-                  checked={t.dry_run === true}
-                  onChange={(e) => updateTarget(i, { dry_run: e.target.checked })}
-                />
-                Log matches only, don&apos;t actually book
-              </label>
+              <label>Mode</label>
+              <div className="mode-toggle">
+                <label className="toggle-label">
+                  <input
+                    type="radio"
+                    name={`mode-${t.key}`}
+                    checked={t.dry_run === true}
+                    onChange={() => updateTarget(i, { dry_run: true })}
+                  />
+                  Notify mode - email me when a match opens, don&apos;t book
+                </label>
+                <label className="toggle-label">
+                  <input
+                    type="radio"
+                    name={`mode-${t.key}`}
+                    checked={t.dry_run !== true}
+                    onChange={() => updateTarget(i, { dry_run: false })}
+                  />
+                  Book mode - book automatically
+                </label>
+              </div>
             </div>
 
             {result && (
@@ -323,8 +457,7 @@ export default function DashboardPage() {
                 {result.venue && (
                   <div className="validation-line success">
                     ✓ Venue: {result.venue.name}
-                    {result.venue.neighborhood ? `, ${result.venue.neighborhood}` : ""}
-                    {result.venue.city ? `, ${result.venue.city}` : ""} (#{result.venue.id})
+                    {result.venue.address ? ` — ${result.venue.address}` : ""}
                   </div>
                 )}
                 {result.venue_error && (
@@ -341,27 +474,36 @@ export default function DashboardPage() {
                   </div>
                 )}
                 {result.criteria_error && (
-                  <div className="validation-line error">✗ Couldn&apos;t parse request: {result.criteria_error}</div>
+                  <div className="validation-line error">
+                    ✗ Couldn&apos;t parse request: {result.criteria_error}
+                  </div>
+                )}
+                {result.venue && result.criteria && (
+                  <div className="validation-line">
+                    {result.cancellation_preview && result.cancellation_preview.length > 0 ? (
+                      <>
+                        <strong>Cancellation terms preview:</strong> {result.cancellation_preview[0]}
+                      </>
+                    ) : (
+                      <span className="notes-hint">{result.cancellation_preview_note}</span>
+                    )}
+                  </div>
                 )}
               </div>
             )}
 
             <div className="card-actions">
               <div className="card-actions-left">
-                <button onClick={() => validateTarget(i)} disabled={validating[i]}>
-                  {validating[i] ? "Checking..." : "Check venue & request"}
-                </button>
+                {!isNew && <button onClick={() => cancelEdit(i)}>Cancel</button>}
                 <button className="danger" onClick={() => removeTarget(i)}>
                   Remove
                 </button>
               </div>
-              <button className="primary" onClick={() => saveTarget(i)} disabled={savingIndex === i}>
-                {savingIndex === i ? "Saving..." : "Save"}
+              <button className="primary" onClick={() => checkAndSave(i)} disabled={checkingKey === t.key}>
+                {checkingKey === t.key ? "Checking & saving..." : "Check & Save"}
               </button>
             </div>
-            {saveMessages[i] && (
-              <div className={`status-message ${saveMessages[i].kind}`}>{saveMessages[i].text}</div>
-            )}
+            {message && <div className={`status-message ${message.kind}`}>{message.text}</div>}
           </div>
         );
       })}
@@ -372,7 +514,7 @@ export default function DashboardPage() {
           {booked.map(({ t, i }) => {
             const liveRes = liveReservations?.find((r) => r.reservation_id === t.booking!.reservation_id);
             return (
-              <div className="card card-booked" key={i}>
+              <div className="card card-booked" key={t.key}>
                 <div className="target-header">
                   <div className="booked-title">
                     <strong>{t.venue_name}</strong>
@@ -381,6 +523,7 @@ export default function DashboardPage() {
                   <StatusBadge target={t} />
                 </div>
 
+                {t.venue_display && <div className="notes-hint">{t.venue_display}</div>}
                 <div className="booked-detail">Reservation ID: {t.booking!.reservation_id}</div>
 
                 {liveRes ? (
