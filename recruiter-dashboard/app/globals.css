@@ -157,6 +157,7 @@ a {
 .step-icon-failure { background: var(--danger-soft); color: var(--danger); }
 .step-icon-skipped { background: #eef0f3; color: #98a2b3; }
 .step-icon-pending { color: var(--border-strong); }
+.step-icon-active { color: var(--accent); font-size: 10px; }
 
 .spinner {
   border: 2px solid var(--border);
@@ -262,9 +263,10 @@ a {
 }
 
 .tabs a.active {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--accent-soft);
+  border-color: var(--accent-soft);
+  color: var(--accent-hover);
+  font-weight: 600;
 }
 
 /* ---------- Record list (Superhuman-style: flat, scannable, one line
@@ -392,6 +394,19 @@ a {
   font-weight: 600;
   color: var(--text-muted);
   width: 20px;
+}
+
+.row-preview-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.row-blurb-company {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.4;
 }
 
 .row-blurb {
@@ -613,6 +628,11 @@ button {
 
 .btn-ghost:hover {
   color: var(--text);
+}
+
+.btn-ghost:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* ---------- Preferences form ---------- */

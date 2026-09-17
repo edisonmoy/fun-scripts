@@ -154,12 +154,33 @@ def update_fit_score(record_id, fit_score, rationale):
 
 def get_approved_pending():
     """Rows the dashboard marked to send; the next run should send each
-    one's existing Gmail draft.
+    one's stored draft_subject/draft_body text.
     """
     conn = get_connection()
     with conn.cursor() as cur:
         cur.execute("SELECT * FROM triage_records WHERE status = 'approved_pending'")
         return cur.fetchall()
+
+
+def get_drafted_records():
+    """Rows still awaiting review (not yet approved/sent/rejected) - used to
+    backfill draft text against a template that didn't exist yet, or was
+    edited, when the row was first drafted.
+    """
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute("SELECT * FROM triage_records WHERE status = 'drafted'")
+        return cur.fetchall()
+
+
+def update_draft_text(record_id, draft_subject, draft_body):
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE triage_records SET draft_subject = %s, draft_body = %s, updated_at = now() "
+            "WHERE id = %s",
+            (draft_subject, draft_body, record_id),
+        )
 
 
 def mark_sent(record_id):

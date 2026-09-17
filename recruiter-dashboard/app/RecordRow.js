@@ -76,7 +76,6 @@ export default function RecordRow({
   rationale,
   draftSubject,
   draftBody,
-  gmailDraftId,
 }) {
   const [expanded, setExpanded] = useState(false)
   const [pending, setPending] = useState(false)
@@ -197,7 +196,10 @@ export default function RecordRow({
 
       <div className="row-preview">
         <FitMeter score={fitScore} />
-        {rationale && <span className="row-blurb">{rationale}</span>}
+        <div className="row-preview-text">
+          {summary && <div className="row-blurb-company">{summary}</div>}
+          {rationale && <div className="row-blurb">{rationale}</div>}
+        </div>
       </div>
 
       {isQuickSend && sendState !== 'queued' && (
@@ -212,7 +214,7 @@ export default function RecordRow({
           </button>
           <button
             type="button"
-            className="btn btn-sm"
+            className="btn-ghost"
             disabled={pending || sendState === 'sending'}
             onClick={handleIgnore}
           >
@@ -249,12 +251,6 @@ export default function RecordRow({
           <div className="row-detail-label">{CATEGORY_LABELS[category] || category}</div>
 
           <ExtractedFields extracted={extracted} />
-          {summary && (
-            <div className="summary-block">
-              <div className="block-label">Opportunity</div>
-              <div className="summary-text">{summary}</div>
-            </div>
-          )}
 
           {draftBody && (
             <div className="draft">
@@ -263,12 +259,6 @@ export default function RecordRow({
                 <div className="draft-subject">{draftSubject}</div>
                 <div className="draft-body">{draftBody}</div>
               </div>
-              {gmailDraftId && status !== 'sent' && (
-                <div className="muted">
-                  Also saved as a Gmail draft &mdash; edit it there directly if you want to
-                  change the wording before it sends.
-                </div>
-              )}
             </div>
           )}
 

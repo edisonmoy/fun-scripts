@@ -154,23 +154,25 @@ def apply_label(thread_id, label_id):
     ).execute()
 
 
-def create_draft(thread_id, to, subject, body):
-    """Create a Gmail draft replying within `thread_id`. Returns the draft id."""
+def send_reply(thread_id, to, subject, body):
+    """Send a new message as a reply within `thread_id`. Returns the sent
+    message's id.
+
+    Deliberately does not create a Gmail draft first - Edison reviews and
+    approves drafts in the dashboard (backed by Postgres), not in Gmail's
+    own Drafts folder, so there's no need to also clutter Gmail with a
+    draft object before actually sending.
+    """
     message = MIMEText(body)
     message["to"] = to
     message["subject"] = subject
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
 
     service = _get_service()
-    draft = (
+    sent = (
         service.users()
-        .drafts()
-        .create(userId="me", body={"message": {"raw": raw, "threadId": thread_id}})
+        .messages()
+        .send(userId="me", body={"raw": raw, "threadId": thread_id})
         .execute()
     )
-    return draft["id"]
-
-
-def send_draft(draft_id):
-    service = _get_service()
-    service.users().drafts().send(userId="me", body={"id": draft_id}).execute()
+    return sent["id"]

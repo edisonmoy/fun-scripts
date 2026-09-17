@@ -112,38 +112,46 @@ export default async function DashboardPage({ searchParams }) {
       <div className="tabs-row">
         <div className="tabs">
           <Link
-            className={!view && !category ? 'active' : ''}
-            href={buildHref(current, { category: null, view: null })}
+            className={!view && !category && !showIgnored ? 'active' : ''}
+            href={buildHref(current, { category: null, view: null, showIgnored: false })}
           >
             All
           </Link>
           <Link
             className={!view && category === 'keep_warm' ? 'active' : ''}
-            href={buildHref(current, { category: 'keep_warm', view: null })}
+            href={buildHref(current, { category: 'keep_warm', view: null, showIgnored: false })}
           >
             Keep Warm
           </Link>
           <Link
             className={!view && category === 'high_interest' ? 'active' : ''}
-            href={buildHref(current, { category: 'high_interest', view: null })}
+            href={buildHref(current, {
+              category: 'high_interest',
+              view: null,
+              showIgnored: false,
+            })}
           >
             High Interest
           </Link>
           <Link
             className={view === 'pending' ? 'active' : ''}
-            href={buildHref(current, { view: 'pending' })}
+            href={buildHref(current, { view: 'pending', category: null, showIgnored: false })}
           >
             Pending Send
           </Link>
-          <Link className={view === 'sent' ? 'active' : ''} href={buildHref(current, { view: 'sent' })}>
+          <Link
+            className={view === 'sent' ? 'active' : ''}
+            href={buildHref(current, { view: 'sent', category: null, showIgnored: false })}
+          >
             Sent
           </Link>
-        </div>
-        {!view && (
-          <Link className="toggle-link" href={buildHref(current, { showIgnored: !showIgnored })}>
-            {showIgnored ? 'Hide ignored status' : 'Show ignored status'}
+          <Link
+            className={!view && showIgnored ? 'active' : ''}
+            href={buildHref(current, { showIgnored: true, category: null, view: null })}
+          >
+            Ignored
           </Link>
-        )}
+        </div>
       </div>
 
       <div className="sort-row">
@@ -192,7 +200,6 @@ export default async function DashboardPage({ searchParams }) {
             rationale={record.rationale}
             draftSubject={record.draft_subject}
             draftBody={record.draft_body}
-            gmailDraftId={record.gmail_draft_id}
           />
         ))}
       </div>

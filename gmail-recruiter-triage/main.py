@@ -34,6 +34,8 @@ def _new_counts():
         "approved_failed": 0,
         "backfilled": 0,
         "backfill_failed": 0,
+        "template_backfilled": 0,
+        "template_backfill_failed": 0,
     }
 
 
@@ -136,12 +138,9 @@ def process_candidate_thread(thread_id, preferences, counts):
         return
 
     to_address = _extract_email_address(thread["sender"])
-    gmail_draft_id = gmail_client.create_draft(
-        thread_id, to_address, draft["subject"], draft["body"]
-    )
 
     if _should_auto_send(category, classification.get("fit_score"), preferences):
-        gmail_client.send_draft(gmail_draft_id)
+        gmail_client.send_reply(thread_id, to_address, draft["subject"], draft["body"])
         status = "sent"
     else:
         status = "drafted"
@@ -155,7 +154,7 @@ def process_candidate_thread(thread_id, preferences, counts):
         fit_score=classification.get("fit_score"),
         extracted=classification,
         rationale=classification.get("rationale"),
-        gmail_draft_id=gmail_draft_id,
+        gmail_draft_id=None,
         status=status,
         draft_subject=draft.get("subject"),
         draft_body=draft.get("body"),
@@ -184,11 +183,38 @@ def backfill_fit_scores(preferences, counts):
             counts["backfill_failed"] += 1
 
 
+def backfill_template_drafts(preferences, counts):
+    """Regenerate draft_subject/draft_body for not-yet-actioned rows whose
+    category now has a keep_warm_template/high_interest_template configured
+    but were drafted before that template existed (or before it was last
+    edited). Skips rows whose category has no template set - nothing to
+    backfill there. Purely deterministic (placeholder substitution, no LLM
+    call, no Gmail fetch) since template filling only needs what's already
+    stored (sender, subject, extracted_json).
+    """
+    for record in db_client.get_drafted_records():
+        template_key = draft_writer.TEMPLATE_PREFERENCE_KEYS.get(record["category"])
+        if not template_key or not preferences.get(template_key):
+            continue
+        try:
+            classification = record["extracted_json"] or {}
+            thread = {"sender": record["sender"], "subject": record["subject"]}
+            draft = draft_writer.generate_draft(classification, thread, preferences)
+            db_client.update_draft_text(record["id"], draft["subject"], draft["body"])
+            counts["template_backfilled"] += 1
+        except Exception:
+            logger.exception("record_id=%s failed to backfill template draft", record["id"])
+            counts["template_backfill_failed"] += 1
+
+
 def process_approved_pending(counts):
-    """Send the existing Gmail draft for every dashboard-approved record."""
+    """Send the stored draft text for every dashboard-approved record."""
     for record in db_client.get_approved_pending():
         try:
-            gmail_client.send_draft(record["gmail_draft_id"])
+            to_address = _extract_email_address(record["sender"])
+            gmail_client.send_reply(
+                record["gmail_thread_id"], to_address, record["draft_subject"], record["draft_body"]
+            )
             db_client.mark_sent(record["id"])
             counts["approved_sent"] += 1
         except Exception:
@@ -223,6 +249,8 @@ def write_step_summary(counts):
         "approved_failed",
         "backfilled",
         "backfill_failed",
+        "template_backfilled",
+        "template_backfill_failed",
     ):
         lines.append(f"| {key} | {counts.get(key, 0)} |")
     lines.append("")
@@ -254,6 +282,7 @@ def main():
 
     process_approved_pending(counts)
     backfill_fit_scores(preferences, counts)
+    backfill_template_drafts(preferences, counts)
 
     db_client.set_last_run_at(run_started_at)
 

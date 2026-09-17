@@ -13,7 +13,7 @@ function StepIcon({ status, conclusion }) {
     }
     return <span className="step-icon step-icon-failure">✕</span>
   }
-  if (status === 'in_progress') return <span className="step-icon spinner" />
+  if (status === 'in_progress') return <span className="step-icon step-icon-active">●</span>
   return <span className="step-icon step-icon-pending">○</span>
 }
 
@@ -106,7 +106,7 @@ export default function RunControls({ initialRunId }) {
   if (phase === 'idle' || phase === 'error') {
     return (
       <span className="run-controls">
-        <button type="button" className="btn btn-primary" onClick={handleRunNow}>
+        <button type="button" className="btn" onClick={handleRunNow}>
           Run now
         </button>
         {message && <span className="warning"> {message}</span>}

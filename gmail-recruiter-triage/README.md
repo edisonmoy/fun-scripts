@@ -34,26 +34,36 @@ this repo, that reads/writes the same Postgres database via `schema.sql`).
    - Otherwise, apply the category's Gmail label (`Recruiter/KeepWarm`,
      `Recruiter/HighInterest`, or `Recruiter/Ignored`) and generate a reply
      draft (`draft_writer.py`):
-     - If `preferences.keep_warm_template` is set and this is a keep_warm
-       email, that template is used **verbatim** - placeholder tokens like
-       `<name>`, `<company>`, `<role>` are filled in deterministically (no
-       LLM call at all), so Edison's own wording never gets paraphrased.
+     - If a custom template is set for the category
+       (`preferences.keep_warm_template` / `high_interest_template`), that
+       template is used **verbatim** - placeholder tokens like `<name>`,
+       `<company>`, `<role>` are filled in deterministically (no LLM call
+       at all), so Edison's own wording never gets paraphrased.
      - Otherwise the model drafts a reply from built-in style instructions,
        explicitly required to reference the specific company/role from the
        email (never a generic template - recruiters can tell).
      Either way the draft is run through the quality gate
      (`quality_gate.py`).
-   - A draft that fails the gate is stored with `status="drafted"` and no
-     `gmail_draft_id`, for manual follow-up - it is **never** auto-sent.
-   - A draft that passes gets created in Gmail. If the category's autonomy
-     setting (`preferences.autonomy_keep_warm` /
-     `autonomy_high_interest`) is `auto_send`, it's sent immediately
-     (`status="sent"`); otherwise it's left as `status="drafted"` for
-     manual review (in Gmail or the dashboard).
-4. Send the Gmail draft for every `triage_records` row the dashboard
-   marked `approved_pending`, then mark it `sent`.
-5. Update `run_state.last_run_at`.
-6. Write a `GITHUB_STEP_SUMMARY` table of **aggregate counts only** (see
+   - A draft that fails the gate is stored with `status="drafted"` for
+     manual follow-up - it is **never** auto-sent.
+   - **No Gmail draft object is ever created.** Edison reviews drafts in
+     the dashboard (backed by this same Postgres row - `draft_subject`/
+     `draft_body`), not in Gmail's own Drafts folder, so there's nothing to
+     gain from also cluttering Gmail with a draft before it's actually
+     approved. If the category's autonomy setting
+     (`preferences.autonomy_keep_warm` / `autonomy_high_interest`, plus an
+     optional fit-score threshold) says to auto-send, `gmail_client.
+     send_reply()` composes and sends the reply directly (`status="sent"`);
+     otherwise it's left as `status="drafted"` for review in the dashboard.
+4. Send the stored `draft_subject`/`draft_body` for every `triage_records`
+   row the dashboard marked `approved_pending`, then mark it `sent`.
+5. Regenerate `draft_subject`/`draft_body` for any still-`drafted` row
+   whose category now has a template configured
+   (`backfill_template_drafts`) - so setting or editing a template
+   retroactively applies to drafts written before that template existed.
+   Purely deterministic (no LLM call, no Gmail fetch).
+6. Update `run_state.last_run_at`.
+7. Write a `GITHUB_STEP_SUMMARY` table of **aggregate counts only** (see
    below).
 
 Each candidate thread is processed inside its own `try/except` so one bad

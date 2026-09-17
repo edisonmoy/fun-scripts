@@ -51,14 +51,14 @@ def test_process_candidate_thread_ignores_non_recruiter_outreach(monkeypatch):
     )
     upsert_mock = MagicMock()
     monkeypatch.setattr(main.db_client, "upsert_triage_record", upsert_mock)
-    create_draft_mock = MagicMock()
-    monkeypatch.setattr(main.gmail_client, "create_draft", create_draft_mock)
+    send_reply_mock = MagicMock()
+    monkeypatch.setattr(main.gmail_client, "send_reply", send_reply_mock)
 
     counts = _counts()
     main.process_candidate_thread("thread-1", {}, counts)
 
     assert counts["ignore"] == 1
-    create_draft_mock.assert_not_called()
+    send_reply_mock.assert_not_called()
     upsert_mock.assert_called_once()
     assert upsert_mock.call_args.kwargs["status"] == "ignored"
     assert upsert_mock.call_args.kwargs["category"] == "ignore"
@@ -84,9 +84,8 @@ def test_process_candidate_thread_auto_sends_when_configured(monkeypatch):
     )
     monkeypatch.setattr(main.gmail_client, "ensure_label", lambda name: "label-123")
     monkeypatch.setattr(main.gmail_client, "apply_label", MagicMock())
-    monkeypatch.setattr(main.gmail_client, "create_draft", lambda *a, **k: "draft-123")
     send_mock = MagicMock()
-    monkeypatch.setattr(main.gmail_client, "send_draft", send_mock)
+    monkeypatch.setattr(main.gmail_client, "send_reply", send_mock)
     upsert_mock = MagicMock()
     monkeypatch.setattr(main.db_client, "upsert_triage_record", upsert_mock)
 
@@ -94,9 +93,9 @@ def test_process_candidate_thread_auto_sends_when_configured(monkeypatch):
     counts = _counts()
     main.process_candidate_thread("thread-2", preferences, counts)
 
-    send_mock.assert_called_once_with("draft-123")
+    send_mock.assert_called_once_with("thread-2", "jane@co.com", "Re: Role", "A" * 60)
     assert upsert_mock.call_args.kwargs["status"] == "sent"
-    assert upsert_mock.call_args.kwargs["gmail_draft_id"] == "draft-123"
+    assert upsert_mock.call_args.kwargs["gmail_draft_id"] is None
     assert counts["sent"] == 1
     assert counts["keep_warm"] == 1
 
@@ -121,9 +120,8 @@ def test_process_candidate_thread_draft_only_when_not_auto_send(monkeypatch):
     )
     monkeypatch.setattr(main.gmail_client, "ensure_label", lambda name: "label-123")
     monkeypatch.setattr(main.gmail_client, "apply_label", MagicMock())
-    monkeypatch.setattr(main.gmail_client, "create_draft", lambda *a, **k: "draft-123")
     send_mock = MagicMock()
-    monkeypatch.setattr(main.gmail_client, "send_draft", send_mock)
+    monkeypatch.setattr(main.gmail_client, "send_reply", send_mock)
     upsert_mock = MagicMock()
     monkeypatch.setattr(main.db_client, "upsert_triage_record", upsert_mock)
 
@@ -133,7 +131,7 @@ def test_process_candidate_thread_draft_only_when_not_auto_send(monkeypatch):
 
     send_mock.assert_not_called()
     assert upsert_mock.call_args.kwargs["status"] == "drafted"
-    assert upsert_mock.call_args.kwargs["gmail_draft_id"] == "draft-123"
+    assert upsert_mock.call_args.kwargs["gmail_draft_id"] is None
     assert counts["high_interest"] == 1
     assert counts["sent"] == 0
 
@@ -158,19 +156,16 @@ def test_process_candidate_thread_quality_gate_failure_never_sends(monkeypatch):
     )
     monkeypatch.setattr(main.gmail_client, "ensure_label", lambda name: "label-123")
     monkeypatch.setattr(main.gmail_client, "apply_label", MagicMock())
-    create_draft_mock = MagicMock()
-    monkeypatch.setattr(main.gmail_client, "create_draft", create_draft_mock)
     send_mock = MagicMock()
-    monkeypatch.setattr(main.gmail_client, "send_draft", send_mock)
+    monkeypatch.setattr(main.gmail_client, "send_reply", send_mock)
     upsert_mock = MagicMock()
     monkeypatch.setattr(main.db_client, "upsert_triage_record", upsert_mock)
 
-    # Even with auto_send configured, a gate failure must never create or send a draft.
+    # Even with auto_send configured, a gate failure must never send.
     preferences = {"autonomy_keep_warm": "auto_send", "autonomy_high_interest": "auto_send"}
     counts = _counts()
     main.process_candidate_thread("thread-4", preferences, counts)
 
-    create_draft_mock.assert_not_called()
     send_mock.assert_not_called()
     assert upsert_mock.call_args.kwargs["status"] == "drafted"
     assert upsert_mock.call_args.kwargs["gmail_draft_id"] is None
@@ -228,12 +223,24 @@ def test_process_approved_pending_sends_and_marks_sent(monkeypatch):
         main.db_client,
         "get_approved_pending",
         lambda: [
-            {"id": 1, "gmail_draft_id": "d1"},
-            {"id": 2, "gmail_draft_id": "d2"},
+            {
+                "id": 1,
+                "gmail_thread_id": "t1",
+                "sender": "Jane <jane@co.com>",
+                "draft_subject": "Re: Role",
+                "draft_body": "Thanks.",
+            },
+            {
+                "id": 2,
+                "gmail_thread_id": "t2",
+                "sender": "Sam <sam@co.com>",
+                "draft_subject": "Re: Role 2",
+                "draft_body": "Thanks again.",
+            },
         ],
     )
     send_mock = MagicMock()
-    monkeypatch.setattr(main.gmail_client, "send_draft", send_mock)
+    monkeypatch.setattr(main.gmail_client, "send_reply", send_mock)
     mark_sent_mock = MagicMock()
     monkeypatch.setattr(main.db_client, "mark_sent", mark_sent_mock)
 
@@ -241,6 +248,7 @@ def test_process_approved_pending_sends_and_marks_sent(monkeypatch):
     main.process_approved_pending(counts)
 
     assert send_mock.call_count == 2
+    send_mock.assert_any_call("t1", "jane@co.com", "Re: Role", "Thanks.")
     assert mark_sent_mock.call_count == 2
     assert counts["approved_sent"] == 2
     assert counts["approved_failed"] == 0
@@ -250,10 +258,18 @@ def test_process_approved_pending_handles_send_failure(monkeypatch):
     monkeypatch.setattr(
         main.db_client,
         "get_approved_pending",
-        lambda: [{"id": 1, "gmail_draft_id": "d1"}],
+        lambda: [
+            {
+                "id": 1,
+                "gmail_thread_id": "t1",
+                "sender": "jane@co.com",
+                "draft_subject": "Re: Role",
+                "draft_body": "Thanks.",
+            }
+        ],
     )
     monkeypatch.setattr(
-        main.gmail_client, "send_draft", MagicMock(side_effect=Exception("boom"))
+        main.gmail_client, "send_reply", MagicMock(side_effect=Exception("boom"))
     )
     mark_sent_mock = MagicMock()
     monkeypatch.setattr(main.db_client, "mark_sent", mark_sent_mock)
@@ -264,3 +280,82 @@ def test_process_approved_pending_handles_send_failure(monkeypatch):
     mark_sent_mock.assert_not_called()
     assert counts["approved_failed"] == 1
     assert counts["approved_sent"] == 0
+
+
+def test_backfill_template_drafts_skips_categories_without_template(monkeypatch):
+    monkeypatch.setattr(
+        main.db_client,
+        "get_drafted_records",
+        lambda: [{"id": 1, "category": "keep_warm", "sender": "a@b.com", "subject": "S"}],
+    )
+    generate_mock = MagicMock()
+    monkeypatch.setattr(main.draft_writer, "generate_draft", generate_mock)
+    update_mock = MagicMock()
+    monkeypatch.setattr(main.db_client, "update_draft_text", update_mock)
+
+    counts = _counts()
+    main.backfill_template_drafts({}, counts)
+
+    generate_mock.assert_not_called()
+    update_mock.assert_not_called()
+    assert counts["template_backfilled"] == 0
+
+
+def test_backfill_template_drafts_regenerates_when_template_set(monkeypatch):
+    monkeypatch.setattr(
+        main.db_client,
+        "get_drafted_records",
+        lambda: [
+            {
+                "id": 1,
+                "category": "keep_warm",
+                "sender": "Dan <dan@co.com>",
+                "subject": "S",
+                "extracted_json": {"company": "Acme"},
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        main.draft_writer,
+        "generate_draft",
+        lambda cls, thread, prefs: {"subject": "Re: S", "body": "Hi Dan."},
+    )
+    update_mock = MagicMock()
+    monkeypatch.setattr(main.db_client, "update_draft_text", update_mock)
+
+    preferences = {"keep_warm_template": "Hi <name>."}
+    counts = _counts()
+    main.backfill_template_drafts(preferences, counts)
+
+    update_mock.assert_called_once_with(1, "Re: S", "Hi Dan.")
+    assert counts["template_backfilled"] == 1
+    assert counts["template_backfill_failed"] == 0
+
+
+def test_backfill_template_drafts_handles_failure(monkeypatch):
+    monkeypatch.setattr(
+        main.db_client,
+        "get_drafted_records",
+        lambda: [
+            {
+                "id": 1,
+                "category": "keep_warm",
+                "sender": "a@b.com",
+                "subject": "S",
+                "extracted_json": {},
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        main.draft_writer, "generate_draft", MagicMock(side_effect=Exception("boom"))
+    )
+    update_mock = MagicMock()
+    monkeypatch.setattr(main.db_client, "update_draft_text", update_mock)
+
+    preferences = {"keep_warm_template": "Hi <name>."}
+    counts = _counts()
+    main.backfill_template_drafts(preferences, counts)
+
+    update_mock.assert_not_called()
+    assert counts["template_backfilled"] == 0
+    assert counts["template_backfill_failed"] == 1

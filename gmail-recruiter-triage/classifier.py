@@ -82,14 +82,18 @@ CLASSIFY_TOOL = {
             "rationale": {
                 "type": "string",
                 "description": (
-                    "Why this fit_score/category was chosen, referencing the stated "
-                    "preferences (target_areas, seniority, comp_floor, etc). This is "
-                    "shown prominently in the dashboard, so keep it to ONE short "
-                    "sentence - roughly half the length you'd otherwise default to. "
-                    "State the single deciding factor only, not a full walkthrough "
-                    "of every preference field. Do NOT state or explain whether this "
-                    "is recruiter outreach - that determination is already made via "
-                    "is_recruiter_outreach and is not useful to repeat here."
+                    "The single deciding factor behind this fit_score/category, as a "
+                    "short phrase (roughly 5-10 words), NOT a full sentence. E.g. "
+                    "'Fintech back-office tooling, not target areas' or 'Venture-"
+                    "studio structure, strong match'. This is shown prominently in "
+                    "the dashboard next to `summary`, so it must not repeat what "
+                    "`summary` already says about what the company/role is - it "
+                    "only names the fit verdict. Do NOT restate what Edison's "
+                    "target areas/seniority/comp_floor actually are (he already "
+                    "knows his own preferences) and do NOT walk through each "
+                    "preference field one by one - only the deciding factor. Do NOT "
+                    "state or explain whether this is recruiter outreach - that's "
+                    "already captured by is_recruiter_outreach."
                 ),
             },
         },
