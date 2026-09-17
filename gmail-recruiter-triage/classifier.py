@@ -4,6 +4,19 @@ import config
 
 CLASSIFY_TOOL_NAME = "classify_recruiter_email"
 
+# Bound on how many pause_turn continuations a single classify() call will
+# ride out before giving up - a long research turn shouldn't loop forever.
+MAX_RESEARCH_TURNS = 4
+
+# Server-side tool: Anthropic executes the search and injects results into
+# the same response, so the model can research the company before it ever
+# gets to classify_recruiter_email - no client-side execution needed here.
+WEB_SEARCH_TOOL = {
+    "type": "web_search_20260209",
+    "name": "web_search",
+    "max_uses": 3,
+}
+
 # Forced tool-use / structured-output schema. strict=True guarantees the
 # response's tool_use.input validates exactly against this schema, so
 # main.py never has to free-text-parse a classification out of prose.
@@ -60,7 +73,11 @@ CLASSIFY_TOOL = {
             "location_or_remote": {"type": ["string", "null"]},
             "summary": {
                 "type": "string",
-                "description": "One-line summary of the opportunity.",
+                "description": (
+                    "One-line summary of the opportunity. If you researched the "
+                    "company, ground this in what you actually learned (what they "
+                    "build, who they serve), not just what the email itself claims."
+                ),
             },
             "rationale": {
                 "type": "string",
@@ -111,12 +128,29 @@ def _build_system_prompt(preferences):
         "outreach at all "
         "(spam, newsletters, personal email, colleagues, etc.) should have "
         "is_recruiter_outreach=false and category='ignore'. If a company in "
-        "company_excludes is the sender, also use category='ignore'."
+        "company_excludes is the sender, also use category='ignore'.\n\n"
+        "If the email names a company, use the web_search tool to briefly research "
+        "what that company actually does (product, industry, mission) before "
+        "classifying - an email's own framing of a role can be generic or vague "
+        "even when the company itself is a clear match (or a clear non-match) for "
+        "the target areas, so don't rely on the email text alone. One or two "
+        "searches is usually enough; skip searching entirely if no company name is "
+        "identifiable, or if the company is already unambiguous (e.g. a well-known "
+        "company you're confident about). Once you've done any research you need, "
+        "call classify_recruiter_email with your final assessment."
     )
 
 
+def _extract_classification(response):
+    for block in response.content:
+        if block.type == "tool_use" and block.name == CLASSIFY_TOOL_NAME:
+            return block.input
+    return None
+
+
 def classify(thread, preferences, client=None):
-    """Classify one email thread via a forced tool call against the Anthropic API.
+    """Classify one email thread against the Anthropic API, allowed to use
+    web search to research a named company before deciding.
 
     `thread` is a dict like {"sender", "subject", "body", ...} as returned
     by gmail_client.get_thread_plaintext(). `preferences` is the dict
@@ -126,6 +160,12 @@ def classify(thread, preferences, client=None):
     Note: the returned `comp` field is best-effort and LLM-inferred from
     whatever the email happened to mention - it is not guaranteed accurate
     and should be treated as a hint, not a fact.
+
+    Tool choice is deliberately "any" (not forced to classify_recruiter_email
+    specifically) so the model is free to call web_search first. If it
+    finishes a turn without having called classify_recruiter_email (e.g. it
+    only searched and stopped), a single forced follow-up call - tools
+    restricted to just classify_recruiter_email - guarantees termination.
     """
     client = client or anthropic.Anthropic()
 
@@ -135,17 +175,54 @@ def classify(thread, preferences, client=None):
         f"{thread.get('body', '')}"
     )
 
+    system = _build_system_prompt(preferences)
+    messages = [{"role": "user", "content": user_content}]
+
+    response = None
+    for _ in range(MAX_RESEARCH_TURNS):
+        response = client.messages.create(
+            model=config.ANTHROPIC_MODEL,
+            max_tokens=2048,
+            system=system,
+            tools=[WEB_SEARCH_TOOL, CLASSIFY_TOOL],
+            tool_choice={"type": "any"},
+            messages=messages,
+        )
+
+        result = _extract_classification(response)
+        if result is not None:
+            return result
+
+        if getattr(response, "stop_reason", None) == "pause_turn":
+            messages = [*messages, {"role": "assistant", "content": response.content}]
+            continue
+
+        break
+
+    if response is None:
+        raise ValueError("classifier: model did not return a classify_recruiter_email tool call")
+
+    # Model researched/reasoned but didn't call classify - force it on a
+    # follow-up turn with only the classify tool available, guaranteeing
+    # termination regardless of what happened above.
+    messages = [
+        *messages,
+        {"role": "assistant", "content": response.content},
+        {
+            "role": "user",
+            "content": "Call the classify_recruiter_email tool now with your final assessment.",
+        },
+    ]
     response = client.messages.create(
         model=config.ANTHROPIC_MODEL,
         max_tokens=1024,
-        system=_build_system_prompt(preferences),
+        system=system,
         tools=[CLASSIFY_TOOL],
         tool_choice={"type": "tool", "name": CLASSIFY_TOOL_NAME},
-        messages=[{"role": "user", "content": user_content}],
+        messages=messages,
     )
-
-    for block in response.content:
-        if block.type == "tool_use" and block.name == CLASSIFY_TOOL_NAME:
-            return block.input
+    result = _extract_classification(response)
+    if result is not None:
+        return result
 
     raise ValueError("classifier: model did not return a classify_recruiter_email tool call")

@@ -18,17 +18,31 @@ this repo, that reads/writes the same Postgres database via `schema.sql`).
    present in `triage_records` (any status) are skipped.
 3. For each new candidate thread:
    - Fetch the plaintext of its most recent message.
-   - Classify it against `preferences` via a forced tool-use call to the
-     Anthropic API (`classifier.py`) - the model must call a strictly
-     schema-validated tool, so there's no free-text parsing of the
+   - Classify it against `preferences` via the Anthropic API
+     (`classifier.py`). The model has a `web_search` tool available and is
+     instructed to briefly research a named company before deciding - an
+     email's own framing can be generic even when the company itself is a
+     clear match (or non-match), so classification isn't limited to what
+     the email text says. `tool_choice` is `"any"` (not forced to the
+     classify tool) so the model can search first; a forced follow-up call
+     (tools restricted to just the classify tool) guarantees a
+     schema-validated result even if the model stops after searching
+     without classifying. Either way there's no free-text parsing of the
      classification.
    - If it's not recruiter outreach at all, record `category="ignore"`,
      `status="ignored"` (for dedupe/audit) and move on.
    - Otherwise, apply the category's Gmail label (`Recruiter/KeepWarm`,
-     `Recruiter/HighInterest`, or `Recruiter/Ignored`), generate a reply
-     draft (`draft_writer.py`) that explicitly references the specific
-     company/role from the email (never a generic template - recruiters
-     can tell), and run it through the quality gate (`quality_gate.py`).
+     `Recruiter/HighInterest`, or `Recruiter/Ignored`) and generate a reply
+     draft (`draft_writer.py`):
+     - If `preferences.keep_warm_template` is set and this is a keep_warm
+       email, that template is used **verbatim** - placeholder tokens like
+       `<name>`, `<company>`, `<role>` are filled in deterministically (no
+       LLM call at all), so Edison's own wording never gets paraphrased.
+     - Otherwise the model drafts a reply from built-in style instructions,
+       explicitly required to reference the specific company/role from the
+       email (never a generic template - recruiters can tell).
+     Either way the draft is run through the quality gate
+     (`quality_gate.py`).
    - A draft that fails the gate is stored with `status="drafted"` and no
      `gmail_draft_id`, for manual follow-up - it is **never** auto-sent.
    - A draft that passes gets created in Gmail. If the category's autonomy
@@ -146,8 +160,11 @@ Both run automatically in CI on any push/PR touching this folder
   guaranteed accurate and should be treated as a hint, not a fact.
 - This is a single-user personal tool: `preferences` and `run_state` are
   intentionally single-row tables (`id = 1`), not per-user.
-- The classifier and draft writer each make one Anthropic API call per
-  candidate thread with no retry/backoff beyond the SDK's default - a
+- The classifier makes one Anthropic API call per candidate thread (two if
+  the model researches without classifying on the first turn - see above),
+  each optionally including a few `web_search` uses; the draft writer makes
+  one call, or zero when a custom `keep_warm_template` is set (filled in
+  deterministically instead). No retry/backoff beyond the SDK's default - a
   transient API failure on one thread is caught, logged (by thread id
   only), and counted as an error rather than failing the whole run, but
   that thread won't be retried until the underlying Gmail search

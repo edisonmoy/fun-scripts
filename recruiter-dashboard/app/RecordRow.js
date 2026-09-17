@@ -228,12 +228,20 @@ export default function RecordRow({
           <div className="row-detail-label">{CATEGORY_LABELS[category] || category}</div>
 
           <ExtractedFields extracted={extracted} />
-          {summary && <div className="draft-text">{summary}</div>}
+          {summary && (
+            <div className="summary-block">
+              <div className="block-label">Opportunity</div>
+              <div className="summary-text">{summary}</div>
+            </div>
+          )}
 
           {draftBody && (
             <div className="draft">
-              <div className="draft-subject">{draftSubject}</div>
-              <div className="draft-body">{draftBody}</div>
+              <div className="block-label">{status === 'sent' ? 'Sent email' : 'Draft reply'}</div>
+              <div className="draft-card">
+                <div className="draft-subject">{draftSubject}</div>
+                <div className="draft-body">{draftBody}</div>
+              </div>
               {gmailDraftId && status !== 'sent' && (
                 <div className="muted">
                   Also saved as a Gmail draft &mdash; edit it there directly if you want to
