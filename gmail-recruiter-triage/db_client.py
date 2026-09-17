@@ -143,7 +143,10 @@ def get_needs_analysis_backfill():
     """
     conn = get_connection()
     with conn.cursor() as cur:
-        cur.execute("SELECT * FROM triage_records WHERE category != 'ignore'")
+        cur.execute(
+            "SELECT * FROM triage_records WHERE category != 'ignore' AND "
+            "(fit_score IS NULL OR NULLIF(extracted_json->>'summary', '') IS NULL)"
+        )
         return cur.fetchall()
 
 
