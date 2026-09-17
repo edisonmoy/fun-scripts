@@ -101,6 +101,7 @@ export default function RunControls({ initialRunId }) {
     setSteps([])
     setConclusion(null)
     setMessage(null)
+    fetch('/api/run-state', { method: 'DELETE' }).catch(() => {})
   }
 
   if (phase === 'idle' || phase === 'error') {

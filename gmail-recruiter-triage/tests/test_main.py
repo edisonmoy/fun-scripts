@@ -173,33 +173,34 @@ def test_process_candidate_thread_quality_gate_failure_never_sends(monkeypatch):
     assert counts["keep_warm"] == 1
 
 
-def test_backfill_fit_scores_updates_missing_rows(monkeypatch):
+def test_backfill_analysis_updates_missing_rows(monkeypatch):
     monkeypatch.setattr(
         main.db_client,
-        "get_missing_fit_score",
+        "get_needs_analysis_backfill",
         lambda: [{"id": 1, "gmail_thread_id": "thread-1"}],
     )
     monkeypatch.setattr(main.gmail_client, "get_thread_plaintext", lambda tid: _thread())
-    monkeypatch.setattr(
-        main.classifier,
-        "classify",
-        lambda thread, prefs: {"fit_score": 62, "rationale": "updated rationale"},
-    )
+    classification = {
+        "fit_score": 62,
+        "rationale": "updated rationale",
+        "summary": "Acme builds fraud detection tooling for banks",
+    }
+    monkeypatch.setattr(main.classifier, "classify", lambda thread, prefs: classification)
     update_mock = MagicMock()
-    monkeypatch.setattr(main.db_client, "update_fit_score", update_mock)
+    monkeypatch.setattr(main.db_client, "update_analysis", update_mock)
 
     counts = _counts()
-    main.backfill_fit_scores({}, counts)
+    main.backfill_analysis({}, counts)
 
-    update_mock.assert_called_once_with(1, 62, "updated rationale")
+    update_mock.assert_called_once_with(1, 62, "updated rationale", classification)
     assert counts["backfilled"] == 1
     assert counts["backfill_failed"] == 0
 
 
-def test_backfill_fit_scores_handles_failure(monkeypatch):
+def test_backfill_analysis_handles_failure(monkeypatch):
     monkeypatch.setattr(
         main.db_client,
-        "get_missing_fit_score",
+        "get_needs_analysis_backfill",
         lambda: [{"id": 1, "gmail_thread_id": "thread-1"}],
     )
     monkeypatch.setattr(
@@ -208,10 +209,10 @@ def test_backfill_fit_scores_handles_failure(monkeypatch):
         MagicMock(side_effect=Exception("boom")),
     )
     update_mock = MagicMock()
-    monkeypatch.setattr(main.db_client, "update_fit_score", update_mock)
+    monkeypatch.setattr(main.db_client, "update_analysis", update_mock)
 
     counts = _counts()
-    main.backfill_fit_scores({}, counts)
+    main.backfill_analysis({}, counts)
 
     update_mock.assert_not_called()
     assert counts["backfilled"] == 0

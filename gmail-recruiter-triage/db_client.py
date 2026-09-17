@@ -89,9 +89,14 @@ def upsert_triage_record(
             INSERT INTO triage_records (
                 gmail_thread_id, received_at, sender, subject, category,
                 fit_score, extracted_json, rationale, gmail_draft_id, status,
-                draft_subject, draft_body
+                draft_subject, draft_body, sent_at
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (
+                %(thread_id)s, %(received_at)s, %(sender)s, %(subject)s, %(category)s,
+                %(fit_score)s, %(extracted)s, %(rationale)s, %(gmail_draft_id)s, %(status)s,
+                %(draft_subject)s, %(draft_body)s,
+                CASE WHEN %(status)s = 'sent' THEN now() ELSE NULL END
+            )
             ON CONFLICT (gmail_thread_id) DO UPDATE SET
                 received_at = EXCLUDED.received_at,
                 sender = EXCLUDED.sender,
@@ -104,51 +109,58 @@ def upsert_triage_record(
                 status = EXCLUDED.status,
                 draft_subject = EXCLUDED.draft_subject,
                 draft_body = EXCLUDED.draft_body,
+                sent_at = CASE
+                    WHEN EXCLUDED.status = 'sent' AND triage_records.sent_at IS NULL THEN now()
+                    ELSE triage_records.sent_at
+                END,
                 updated_at = now()
             RETURNING id
             """,
-            (
-                thread_id,
-                received_at,
-                sender,
-                subject,
-                category,
-                fit_score,
-                Jsonb(extracted),
-                rationale,
-                gmail_draft_id,
-                status,
-                draft_subject,
-                draft_body,
-            ),
+            {
+                "thread_id": thread_id,
+                "received_at": received_at,
+                "sender": sender,
+                "subject": subject,
+                "category": category,
+                "fit_score": fit_score,
+                "extracted": Jsonb(extracted),
+                "rationale": rationale,
+                "gmail_draft_id": gmail_draft_id,
+                "status": status,
+                "draft_subject": draft_subject,
+                "draft_body": draft_body,
+            },
         )
         return cur.fetchone()["id"]
 
 
-def get_missing_fit_score():
-    """Rows classified before fit_score existed (or where it's otherwise
-    null). Used to backfill the dashboard's fit meter without waiting for
-    those threads to naturally reappear as new candidates.
+def get_needs_analysis_backfill():
+    """Rows classified before fit_score existed, or before the company
+    description (extracted_json.summary) was a required field - both are
+    signs the row predates the current classifier and should be re-run.
+    Used to backfill the dashboard's fit meter and company blurb without
+    waiting for those threads to naturally reappear as new candidates.
     """
     conn = get_connection()
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT * FROM triage_records WHERE fit_score IS NULL AND category != 'ignore'"
+            "SELECT * FROM triage_records WHERE category != 'ignore' AND "
+            "(fit_score IS NULL OR NULLIF(extracted_json->>'summary', '') IS NULL)"
         )
         return cur.fetchall()
 
 
-def update_fit_score(record_id, fit_score, rationale):
-    """Backfill fit_score/rationale for an already-triaged row, without
-    touching its status, draft, or Gmail label - this is a re-scoring, not
-    a re-triage.
+def update_analysis(record_id, fit_score, rationale, extracted):
+    """Backfill fit_score/rationale/extracted_json for an already-triaged
+    row, without touching its status, draft, or Gmail label - this is a
+    re-analysis, not a re-triage (category/draft/send decisions stand).
     """
     conn = get_connection()
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE triage_records SET fit_score = %s, rationale = %s, updated_at = now() "
-            "WHERE id = %s",
-            (fit_score, rationale, record_id),
+            "UPDATE triage_records SET fit_score = %s, rationale = %s, "
+            "extracted_json = %s, updated_at = now() WHERE id = %s",
+            (fit_score, rationale, Jsonb(extracted), record_id),
         )
 
 
@@ -187,7 +199,8 @@ def mark_sent(record_id):
     conn = get_connection()
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE triage_records SET status = 'sent', updated_at = now() WHERE id = %s",
+            "UPDATE triage_records SET status = 'sent', sent_at = now(), updated_at = now() "
+            "WHERE id = %s",
             (record_id,),
         )
 

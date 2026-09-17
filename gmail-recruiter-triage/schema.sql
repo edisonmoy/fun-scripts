@@ -48,6 +48,11 @@ CREATE TABLE IF NOT EXISTS triage_records (
     -- needing Gmail API access itself. Null for category='ignore' rows.
     draft_subject TEXT,
     draft_body TEXT,
+    -- When the reply actually went out (auto_send at triage time, or later
+    -- via approved_pending -> sent). Null until status='sent'. Distinct from
+    -- received_at (the original email) and created_at (when this row was
+    -- first triaged) so the dashboard can show both dates on sent items.
+    sent_at TIMESTAMPTZ,
     -- drafted: draft created, awaiting manual send in Gmail or dashboard action
     -- approved_pending: dashboard marked it to send; next Action run sends it
     -- sent: the reply went out (auto_send or approved_pending -> sent)
@@ -84,3 +89,8 @@ ALTER TABLE preferences ADD COLUMN IF NOT EXISTS keep_warm_template TEXT NOT NUL
 ALTER TABLE preferences ADD COLUMN IF NOT EXISTS high_interest_template TEXT NOT NULL DEFAULT '';
 ALTER TABLE preferences DROP COLUMN IF EXISTS tone_notes;
 ALTER TABLE run_state ADD COLUMN IF NOT EXISTS active_run_id BIGINT;
+ALTER TABLE triage_records ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
+-- Best-effort backfill for rows sent before sent_at existed: updated_at is
+-- the closest proxy we have (it's set on every write, and a 'sent' row's
+-- last write was the send itself).
+UPDATE triage_records SET sent_at = updated_at WHERE status = 'sent' AND sent_at IS NULL;

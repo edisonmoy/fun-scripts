@@ -43,6 +43,56 @@ a {
   padding: 28px 24px 72px;
 }
 
+@media (max-width: 640px) {
+  .container {
+    padding: 16px 10px 48px;
+  }
+
+  .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .header > div {
+    align-items: flex-start;
+    gap: 6px;
+  }
+
+  .header nav {
+    margin-top: 2px;
+  }
+
+  .row-summary {
+    padding: 12px 10px 8px;
+    gap: 8px;
+  }
+
+  .row-preview {
+    padding: 0 10px 12px 13px;
+  }
+
+  .row-quick-actions {
+    padding: 0 10px 14px 13px;
+  }
+
+  .row-detail {
+    padding: 6px 10px 18px 13px;
+  }
+
+  .row-meta {
+    gap: 8px;
+  }
+
+  form.prefs {
+    padding: 16px 14px 20px;
+  }
+
+  .draft-card {
+    padding: 12px 14px;
+  }
+}
+
 /* ---------- Header ---------- */
 
 .header {
@@ -141,6 +191,10 @@ a {
   margin-top: 12px;
 }
 
+.run-panel > .btn {
+  margin-top: 14px;
+}
+
 .step-icon {
   display: inline-flex;
   align-items: center;
@@ -221,7 +275,8 @@ a {
 .sort-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 6px 12px;
   margin-bottom: 14px;
   font-size: 12.5px;
 }
@@ -355,6 +410,14 @@ a {
   letter-spacing: 0.03em;
   font-size: 10.5px;
   font-weight: 600;
+}
+
+.row-date-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
 }
 
 .row-preview {

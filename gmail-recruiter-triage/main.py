@@ -164,22 +164,27 @@ def process_candidate_thread(thread_id, preferences, counts):
         counts["sent"] += 1
 
 
-def backfill_fit_scores(preferences, counts):
-    """Re-score already-triaged rows that predate fit_score (or otherwise
-    lack one), so the dashboard's fit meter isn't permanently blank for
-    them. Re-classifies against the current thread content but only writes
-    back fit_score/rationale - status, draft, and Gmail label are untouched.
+def backfill_analysis(preferences, counts):
+    """Re-analyze already-triaged rows that predate fit_score or the
+    required company-description (summary) field, so the dashboard's fit
+    meter and blurb aren't permanently blank/stale for them. Re-classifies
+    against the current thread content but only writes back
+    fit_score/rationale/extracted_json - status, draft, and Gmail label are
+    untouched (this is a re-analysis, not a re-triage).
     """
-    for record in db_client.get_missing_fit_score():
+    for record in db_client.get_needs_analysis_backfill():
         try:
             thread = gmail_client.get_thread_plaintext(record["gmail_thread_id"])
             classification = classifier.classify(thread, preferences)
-            db_client.update_fit_score(
-                record["id"], classification.get("fit_score"), classification.get("rationale")
+            db_client.update_analysis(
+                record["id"],
+                classification.get("fit_score"),
+                classification.get("rationale"),
+                classification,
             )
             counts["backfilled"] += 1
         except Exception:
-            logger.exception("record_id=%s failed to backfill fit_score", record["id"])
+            logger.exception("record_id=%s failed to backfill analysis", record["id"])
             counts["backfill_failed"] += 1
 
 
@@ -281,7 +286,7 @@ def main():
             counts["errors"] += 1
 
     process_approved_pending(counts)
-    backfill_fit_scores(preferences, counts)
+    backfill_analysis(preferences, counts)
     backfill_template_drafts(preferences, counts)
 
     db_client.set_last_run_at(run_started_at)

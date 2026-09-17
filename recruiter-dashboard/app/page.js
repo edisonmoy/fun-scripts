@@ -8,12 +8,32 @@ export const dynamic = 'force-dynamic'
 
 function fmtDate(value) {
   if (!value) return null
-  return new Date(value).toLocaleString()
+  return (
+    new Date(value).toLocaleString('en-US', {
+      timeZone: 'America/New_York',
+      dateStyle: 'short',
+      timeStyle: 'short',
+    }) + ' ET'
+  )
 }
 
 async function getRunState() {
   const { rows } = await query('SELECT last_run_at, active_run_id FROM run_state WHERE id = 1')
   return rows[0] || null
+}
+
+async function getCounts() {
+  const { rows } = await query(`
+    SELECT
+      COUNT(*) FILTER (WHERE status NOT IN ('sent', 'ignored')) AS all_count,
+      COUNT(*) FILTER (WHERE category = 'keep_warm' AND status NOT IN ('sent', 'ignored')) AS keep_warm_count,
+      COUNT(*) FILTER (WHERE category = 'high_interest' AND status NOT IN ('sent', 'ignored')) AS high_interest_count,
+      COUNT(*) FILTER (WHERE status = 'approved_pending') AS pending_count,
+      COUNT(*) FILTER (WHERE status = 'sent') AS sent_count,
+      COUNT(*) FILTER (WHERE status = 'ignored') AS ignored_count
+    FROM triage_records
+  `)
+  return rows[0]
 }
 
 const SORT_OPTIONS = {
@@ -84,9 +104,10 @@ export default async function DashboardPage({ searchParams }) {
   const sort = SORT_OPTIONS[sp.sort] ? sp.sort : 'newest'
   const current = { category, showIgnored, view, sort }
 
-  const [runState, records] = await Promise.all([
+  const [runState, records, counts] = await Promise.all([
     getRunState(),
     getRecords({ category, showIgnored, view, sort }),
+    getCounts(),
   ])
 
   return (
@@ -115,13 +136,13 @@ export default async function DashboardPage({ searchParams }) {
             className={!view && !category && !showIgnored ? 'active' : ''}
             href={buildHref(current, { category: null, view: null, showIgnored: false })}
           >
-            All
+            All ({counts.all_count})
           </Link>
           <Link
             className={!view && category === 'keep_warm' ? 'active' : ''}
             href={buildHref(current, { category: 'keep_warm', view: null, showIgnored: false })}
           >
-            Keep Warm
+            Keep Warm ({counts.keep_warm_count})
           </Link>
           <Link
             className={!view && category === 'high_interest' ? 'active' : ''}
@@ -131,25 +152,25 @@ export default async function DashboardPage({ searchParams }) {
               showIgnored: false,
             })}
           >
-            High Interest
+            High Interest ({counts.high_interest_count})
           </Link>
           <Link
             className={view === 'pending' ? 'active' : ''}
             href={buildHref(current, { view: 'pending', category: null, showIgnored: false })}
           >
-            Pending Send
+            Pending Send ({counts.pending_count})
           </Link>
           <Link
             className={view === 'sent' ? 'active' : ''}
             href={buildHref(current, { view: 'sent', category: null, showIgnored: false })}
           >
-            Sent
+            Sent ({counts.sent_count})
           </Link>
           <Link
             className={!view && showIgnored ? 'active' : ''}
             href={buildHref(current, { showIgnored: true, category: null, view: null })}
           >
-            Ignored
+            Ignored ({counts.ignored_count})
           </Link>
         </div>
       </div>
@@ -192,6 +213,7 @@ export default async function DashboardPage({ searchParams }) {
             subject={record.subject}
             sender={record.sender}
             dateDisplay={fmtDate(record.received_at) || fmtDate(record.created_at)}
+            sentAtDisplay={fmtDate(record.sent_at)}
             category={record.category}
             status={record.status}
             fitScore={record.fit_score}

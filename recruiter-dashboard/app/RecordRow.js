@@ -68,6 +68,7 @@ export default function RecordRow({
   subject,
   sender,
   dateDisplay,
+  sentAtDisplay,
   category,
   status,
   fitScore,
@@ -118,29 +119,35 @@ export default function RecordRow({
     }, 280)
   }
 
-  async function handleSend(e) {
+  // Optimistic: animate away immediately since this almost always succeeds.
+  // The network calls happen in the background; a real failure rolls the
+  // row back into view and surfaces the error instead of silently losing it.
+  function handleSend(e) {
     e.stopPropagation()
-    setSendState('sending')
+    setSendState('queued')
     setError(null)
-    try {
-      const patchRes = await fetch(`/api/triage/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'approved_pending' }),
-      })
-      if (!patchRes.ok) {
-        const respBody = await patchRes.json().catch(() => ({}))
-        throw new Error(respBody.error || `request failed (${patchRes.status})`)
+    animateAway()
+    ;(async () => {
+      try {
+        const patchRes = await fetch(`/api/triage/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'approved_pending' }),
+        })
+        if (!patchRes.ok) {
+          const respBody = await patchRes.json().catch(() => ({}))
+          throw new Error(respBody.error || `request failed (${patchRes.status})`)
+        }
+        // Trigger the automation right away rather than waiting for the next
+        // scheduled run - this is what makes "Send" actually send promptly.
+        await fetch('/api/run-now', { method: 'POST' })
+      } catch (err) {
+        setLeaving(false)
+        setRemoved(false)
+        setSendState('idle')
+        setError(err.message)
       }
-      // Trigger the automation right away rather than waiting for the next
-      // scheduled run - this is what makes "Send" actually send promptly.
-      await fetch('/api/run-now', { method: 'POST' })
-      setSendState('queued')
-      animateAway()
-    } catch (err) {
-      setError(err.message)
-      setSendState('idle')
-    }
+    })()
   }
 
   async function handleIgnore(e) {
@@ -186,10 +193,17 @@ export default function RecordRow({
           <span className="row-sender">{sender}</span>
         </span>
         <span className="row-meta">
-          {status !== 'drafted' && (
+          {status !== 'drafted' && status !== 'sent' && (
             <span className="row-status">{STATUS_LABELS[status] || status}</span>
           )}
-          <span className="row-date">{dateDisplay}</span>
+          {status === 'sent' ? (
+            <span className="row-date row-date-stack">
+              <span>Sent {sentAtDisplay || dateDisplay}</span>
+              <span className="muted">Received {dateDisplay}</span>
+            </span>
+          ) : (
+            <span className="row-date">{dateDisplay}</span>
+          )}
           <span className={`toggle-arrow ${expanded ? 'toggle-arrow-open' : ''}`}>▾</span>
         </span>
       </button>

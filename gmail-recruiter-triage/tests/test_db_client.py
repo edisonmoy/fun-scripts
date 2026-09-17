@@ -78,22 +78,25 @@ def test_upsert_triage_record_returns_id(monkeypatch):
     query, params = cursor.executed[-1]
     assert "INSERT INTO triage_records" in query
     assert "ON CONFLICT (gmail_thread_id)" in query
-    assert params[0] == "thread-1"
+    assert params["thread_id"] == "thread-1"
 
 
-def test_get_missing_fit_score_returns_rows(monkeypatch):
+def test_get_needs_analysis_backfill_returns_rows(monkeypatch):
     rows = [{"id": 1, "gmail_thread_id": "t1", "fit_score": None}]
     _install_fake_connection(monkeypatch, fetchall_value=rows)
-    assert db_client.get_missing_fit_score() == rows
+    assert db_client.get_needs_analysis_backfill() == rows
 
 
-def test_update_fit_score_executes_update(monkeypatch):
+def test_update_analysis_executes_update(monkeypatch):
     _, cursor = _install_fake_connection(monkeypatch)
-    db_client.update_fit_score(42, 65, "some rationale")
+    db_client.update_analysis(42, 65, "some rationale", {"summary": "Acme builds widgets"})
     query, params = cursor.executed[-1]
     assert "UPDATE triage_records" in query
     assert "fit_score" in query
-    assert params == (65, "some rationale", 42)
+    assert "extracted_json" in query
+    assert params[0] == 65
+    assert params[1] == "some rationale"
+    assert params[3] == 42
 
 
 def test_get_approved_pending_returns_rows(monkeypatch):
