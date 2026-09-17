@@ -5,7 +5,8 @@
     "request": "any friday or saturday around 7pm to 9pm for 2 people.",
     "venue_id": 42534,
     "enabled": true,
-    "dry_run": false
+    "dry_run": false,
+    "venue_display": "The Coop at Double Chicken Please — 115 Allen St, New York, NY 10002"
   },
   {
     "key": "pizza4ps-brooklyn-saturday",
