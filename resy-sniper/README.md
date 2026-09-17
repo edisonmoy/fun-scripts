@@ -267,3 +267,19 @@ these env vars are global/shared settings:
   stored in `booking` and what the cancel flow re-looks-up a fresh
   `resy_token` from right before calling `/3/cancel` - never trust a
   stored `resy_token`.
+- Resy's `/4/find` can fail with a 500 on every single request for one
+  venue for several minutes straight while unrelated one-off requests
+  from a different source succeed the whole time (confirmed live) - looks
+  like either venue-specific flakiness or the polling IP getting
+  soft-throttled under sustained load, and there's no way to tell which
+  from here. `main.py` backs off exponentially (2x per consecutive
+  all-dates-failed round, capped at 30x) while this persists, resetting
+  the moment a round comes back clean, so a sustained bad stretch doesn't
+  turn into sustained hammering.
+- After some Fly deploys, a machine gets stuck in `stopped` right after
+  "Configuring firecracker" and never proceeds to actually running
+  `main.py`, even though the deploy itself reports success (confirmed
+  live, several times, always resolved by `fly machine start <id>`).
+  Looks like a Fly platform quirk with this app's rolling-deploy +
+  standby-machine setup, not anything in the code - if `fly status` shows
+  `stopped` a while after a deploy finished, that's the fix.

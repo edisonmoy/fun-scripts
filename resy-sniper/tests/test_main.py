@@ -31,20 +31,22 @@ def test_find_target_slot_skips_a_failing_date_and_checks_the_rest():
         return [{"date": {"start": f"{day} 19:00:00"}}]
 
     with patch("main.resy_api.find_slots", side_effect=fake_find_slots):
-        found_day, slot = main.find_target_slot("test-target", 12345, criteria)
+        found_day, slot, all_failed = main.find_target_slot("test-target", 12345, criteria)
 
     assert found_day == dates[1]
     assert main.resy_api.slot_time(slot) == "19:00"
+    assert all_failed is False  # one date errored, but the other succeeded
 
 
 def test_find_target_slot_returns_none_when_nothing_open():
     criteria = _criteria()
 
     with patch("main.resy_api.find_slots", return_value=[]):
-        found_day, slot = main.find_target_slot("test-target", 12345, criteria)
+        found_day, slot, all_failed = main.find_target_slot("test-target", 12345, criteria)
 
     assert found_day is None
     assert slot is None
+    assert all_failed is False
 
 
 def test_find_target_slot_filters_by_time_window():
@@ -54,10 +56,22 @@ def test_find_target_slot_filters_by_time_window():
         return [{"date": {"start": f"{day} 11:00:00"}}]  # outside the window
 
     with patch("main.resy_api.find_slots", side_effect=fake_find_slots):
-        found_day, slot = main.find_target_slot("test-target", 12345, criteria)
+        found_day, slot, all_failed = main.find_target_slot("test-target", 12345, criteria)
 
     assert found_day is None
     assert slot is None
+    assert all_failed is False
+
+
+def test_find_target_slot_reports_all_failed_when_every_date_errors():
+    criteria = _criteria()
+
+    with patch("main.resy_api.find_slots", side_effect=RuntimeError("simulated Resy 500")):
+        found_day, slot, all_failed = main.find_target_slot("test-target", 12345, criteria)
+
+    assert found_day is None
+    assert slot is None
+    assert all_failed is True
 
 
 def _target(**overrides):

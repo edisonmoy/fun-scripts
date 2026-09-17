@@ -35,24 +35,29 @@ class Watch:
 
 
 def find_target_slot(key, venue_id, criteria):
-    """Check every candidate date in order; return (day, slot) for the
-    first time-window-matching slot found, or (None, None) if nothing's
-    open yet. A single date failing (Resy 5xx, timeout, etc. - observed
-    live, not hypothetical) doesn't block checking the rest: Resy's API is
-    flaky enough that one bad date shouldn't hide a real opening on a
-    later one for the rest of this poll round.
+    """Check every candidate date in order; return (day, slot, all_failed).
+    day/slot are the first time-window-matching slot found, or None if
+    nothing's open yet. all_failed is True when every single date errored
+    (vs. legitimately having no availability) - the caller uses this to
+    back off, since a run of these usually means Resy itself is having
+    trouble (observed live) rather than random bad luck on one date. A
+    single date failing doesn't block checking the rest: one bad date
+    shouldn't hide a real opening on a later one in the same round.
     """
-    for day in criteria.candidate_dates():
+    dates = criteria.candidate_dates()
+    errors = 0
+    for day in dates:
         try:
             slots = resy_api.find_slots(venue_id, day, criteria.party_size)
         except Exception:
             logger.exception("[%s][%s] slot check failed, skipping this date this round", key, day)
+            errors += 1
             continue
         matching = [s for s in slots if criteria.in_time_window(resy_api.slot_time(s))]
         if matching:
-            return day, matching[0]
+            return day, matching[0], False
         logger.info("[%s][%s] no matching slots for party of %d yet", key, day, criteria.party_size)
-    return None, None
+    return None, None, bool(dates) and errors == len(dates)
 
 
 def try_book(watch, day, slot, payment_method_id):
@@ -146,11 +151,14 @@ def main():
                 "no payment method on file - booking will only work for no-deposit venues"
             )
 
+    consecutive_bad_rounds = 0
     while watches:
         still_watching = []
+        any_target_all_failed = False
         for watch in watches:
             try:
-                day, slot = find_target_slot(watch.key, watch.venue_id, watch.criteria)
+                day, slot, all_failed = find_target_slot(watch.key, watch.venue_id, watch.criteria)
+                any_target_all_failed = any_target_all_failed or all_failed
                 if slot:
                     logger.info("[%s] slot found: %s %s - attempting to book",
                                 watch.key, day, resy_api.slot_time(slot))
@@ -162,8 +170,26 @@ def main():
                 still_watching.append(watch)
         watches = still_watching
 
+        # Every date erroring for a target usually means Resy itself is
+        # struggling (observed live: sustained several-minute stretches of
+        # every request failing, isolated from anything specific to our
+        # code or credentials), not random bad luck on one date. Back off
+        # exponentially while that persists instead of hammering it every
+        # ~2s, capped at 30x and reset the instant a round comes back
+        # clean - this shouldn't slow down catching a real opening once
+        # Resy recovers.
+        consecutive_bad_rounds = consecutive_bad_rounds + 1 if any_target_all_failed else 0
+        backoff = min(2**consecutive_bad_rounds, 30)
+        if backoff > 1:
+            logger.warning(
+                "every date errored for at least one target this round (%dx in a row) - "
+                "backing off %dx this round",
+                consecutive_bad_rounds, backoff,
+            )
+
         if watches:
-            time.sleep(config.POLL_INTERVAL_SECONDS + random.uniform(0, config.POLL_JITTER_SECONDS))
+            jitter = random.uniform(0, config.POLL_JITTER_SECONDS)
+            time.sleep(backoff * (config.POLL_INTERVAL_SECONDS + jitter))
 
     # Nothing left to poll - either everything active this run got booked,
     # or there was nothing to watch to begin with (all booked/disabled, or
