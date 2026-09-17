@@ -11,6 +11,33 @@ def _thread(sender="Jane <jane@co.com>", subject="Role", body="..."):
     return {"sender": sender, "subject": subject, "body": body, "received_at": None}
 
 
+def test_should_auto_send_false_when_autonomy_is_draft_only():
+    prefs = {"autonomy_keep_warm": "draft_only"}
+    assert main._should_auto_send("keep_warm", 10, prefs) is False
+
+
+def test_should_auto_send_true_with_auto_send_and_no_threshold():
+    prefs = {"autonomy_keep_warm": "auto_send"}
+    assert main._should_auto_send("keep_warm", 95, prefs) is True
+
+
+def test_should_auto_send_keep_warm_respects_max_fit_threshold():
+    prefs = {"autonomy_keep_warm": "auto_send", "keep_warm_auto_send_max_fit": 30}
+    assert main._should_auto_send("keep_warm", 30, prefs) is True
+    assert main._should_auto_send("keep_warm", 31, prefs) is False
+
+
+def test_should_auto_send_high_interest_respects_min_fit_threshold():
+    prefs = {"autonomy_high_interest": "auto_send", "high_interest_auto_send_min_fit": 80}
+    assert main._should_auto_send("high_interest", 80, prefs) is True
+    assert main._should_auto_send("high_interest", 79, prefs) is False
+
+
+def test_should_auto_send_missing_fit_score_fails_closed_with_threshold():
+    prefs = {"autonomy_keep_warm": "auto_send", "keep_warm_auto_send_max_fit": 30}
+    assert main._should_auto_send("keep_warm", None, prefs) is False
+
+
 def test_process_candidate_thread_ignores_non_recruiter_outreach(monkeypatch):
     monkeypatch.setattr(main.gmail_client, "get_thread_plaintext", lambda tid: _thread())
     monkeypatch.setattr(

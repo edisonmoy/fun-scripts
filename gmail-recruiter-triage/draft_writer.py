@@ -17,7 +17,20 @@ DRAFT_SCHEMA = {
 }
 
 
-def _style_instructions(category):
+DEFAULT_KEEP_WARM_TEMPLATE = (
+    "Write a very short reply, exactly three parts and nothing else: "
+    "(1) thank them for reaching out, "
+    "(2) one sentence commenting on something specific they actually said in "
+    "their email (the company, the role, a detail they mentioned - not a "
+    "generic compliment), "
+    "(3) close with a line like 'Happy to reconnect if things change in the "
+    "future.' "
+    "Do not say now isn't the right time, do not explain why, do not add "
+    "anything beyond those three parts."
+)
+
+
+def _style_instructions(category, preferences):
     if category == "high_interest":
         return (
             "Write a more substantive reply that shows genuine interest in this "
@@ -25,24 +38,14 @@ def _style_instructions(category):
             "information (e.g. more detail on the role's scope, team, or comp) so "
             "the conversation has somewhere concrete to go next."
         )
-    return (
-        "Write a very short reply, exactly three parts and nothing else: "
-        "(1) thank them for reaching out, "
-        "(2) one sentence commenting on something specific they actually said in "
-        "their email (the company, the role, a detail they mentioned - not a "
-        "generic compliment), "
-        "(3) close with a line like 'Happy to reconnect if things change in the "
-        "future.' "
-        "Do not say now isn't the right time, do not explain why, do not add "
-        "anything beyond those three parts."
-    )
+    return preferences.get("keep_warm_template") or DEFAULT_KEEP_WARM_TEMPLATE
 
 
 def _build_prompt(classification, thread, preferences):
     return (
         "Draft an email reply to the recruiter thread below, on Edison's behalf.\n\n"
         f"Tone notes from Edison: {preferences.get('tone_notes', '')}\n\n"
-        f"{_style_instructions(classification.get('category'))}\n\n"
+        f"{_style_instructions(classification.get('category'), preferences)}\n\n"
         "Critical: your reply MUST reference the SPECIFIC company, role, or other "
         "concrete detail from the email below. Never write a generic template reply - "
         "recruiters can tell immediately, and a generic-sounding reply defeats the "

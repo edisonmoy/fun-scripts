@@ -14,6 +14,18 @@ CREATE TABLE IF NOT EXISTS preferences (
         CHECK (autonomy_keep_warm IN ('draft_only', 'auto_send')),
     autonomy_high_interest TEXT NOT NULL DEFAULT 'draft_only'
         CHECK (autonomy_high_interest IN ('draft_only', 'auto_send')),
+    -- Extra gate on top of the auto_send toggles above: when set, a
+    -- category's autonomy=auto_send only actually auto-sends if fit_score
+    -- also clears this bar. Null means no extra gate (all-or-nothing, as
+    -- the toggle alone implies). Directionality differs on purpose:
+    -- keep_warm auto-sends the LOW-fit ones (clearly generic outreach,
+    -- safe to auto-dismiss); high_interest auto-sends the HIGH-fit ones
+    -- (confidently a strong match).
+    keep_warm_auto_send_max_fit INTEGER,
+    high_interest_auto_send_min_fit INTEGER,
+    -- Optional custom instructions for keep_warm replies. Empty means fall
+    -- back to draft_writer.py's built-in three-part default.
+    keep_warm_template TEXT NOT NULL DEFAULT '',
     tone_notes TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT preferences_single_row CHECK (id = 1)
@@ -55,7 +67,10 @@ CREATE TABLE IF NOT EXISTS run_state (
 INSERT INTO preferences (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 INSERT INTO run_state (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
--- Migration for databases created before fit_score existed - CREATE TABLE
--- IF NOT EXISTS above is a no-op against an already-live table, so this
--- covers upgrading it in place. Safe to run every time.
+-- Migrations for databases created before these columns existed - CREATE
+-- TABLE IF NOT EXISTS above is a no-op against an already-live table, so
+-- this covers upgrading it in place. Safe to run every time.
 ALTER TABLE triage_records ADD COLUMN IF NOT EXISTS fit_score INTEGER;
+ALTER TABLE preferences ADD COLUMN IF NOT EXISTS keep_warm_auto_send_max_fit INTEGER;
+ALTER TABLE preferences ADD COLUMN IF NOT EXISTS high_interest_auto_send_min_fit INTEGER;
+ALTER TABLE preferences ADD COLUMN IF NOT EXISTS keep_warm_template TEXT NOT NULL DEFAULT '';

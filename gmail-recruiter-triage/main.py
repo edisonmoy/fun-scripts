@@ -43,6 +43,43 @@ def _extract_email_address(sender):
     return address
 
 
+def _should_auto_send(category, fit_score, preferences):
+    """Whether a passed-quality-gate draft should be sent immediately.
+
+    The per-category autonomy toggle (draft_only/auto_send) is the primary
+    switch. When it's auto_send, an optional fit_score threshold narrows it
+    further: keep_warm auto-sends the LOW-fit drafts (clearly generic
+    outreach - safe to auto-dismiss) via keep_warm_auto_send_max_fit;
+    high_interest auto-sends the HIGH-fit drafts (confidently a strong
+    match) via high_interest_auto_send_min_fit. A missing/null threshold
+    means no extra gate - the toggle alone decides, as before. A missing
+    fit_score (e.g. classifier didn't return one) fails a configured
+    threshold closed, i.e. falls back to draft_only for safety.
+    """
+    if category == "keep_warm":
+        autonomy_key, threshold_key, compare = (
+            "autonomy_keep_warm",
+            "keep_warm_auto_send_max_fit",
+            lambda score, threshold: score <= threshold,
+        )
+    else:
+        autonomy_key, threshold_key, compare = (
+            "autonomy_high_interest",
+            "high_interest_auto_send_min_fit",
+            lambda score, threshold: score >= threshold,
+        )
+
+    if preferences.get(autonomy_key) != "auto_send":
+        return False
+
+    threshold = preferences.get(threshold_key)
+    if threshold is None:
+        return True
+    if fit_score is None:
+        return False
+    return compare(fit_score, threshold)
+
+
 def process_candidate_thread(thread_id, preferences, counts):
     """Fetch, classify, and (if warranted) draft a reply for one Gmail
     thread. Mutates `counts` in place. Never logs thread content - only
@@ -103,8 +140,7 @@ def process_candidate_thread(thread_id, preferences, counts):
         thread_id, to_address, draft["subject"], draft["body"]
     )
 
-    autonomy_key = "autonomy_keep_warm" if category == "keep_warm" else "autonomy_high_interest"
-    if preferences.get(autonomy_key) == "auto_send":
+    if _should_auto_send(category, classification.get("fit_score"), preferences):
         gmail_client.send_draft(gmail_draft_id)
         status = "sent"
     else:
