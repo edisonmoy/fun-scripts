@@ -62,7 +62,7 @@ def test_no_custom_template_falls_back_to_llm(monkeypatch):
     mock_client.messages.create.assert_called_once()
 
 
-def test_high_interest_always_uses_llm_even_with_keep_warm_template_set():
+def test_high_interest_ignores_keep_warm_template_and_uses_llm():
     preferences = {"keep_warm_template": "Hi <name>, thanks."}
     classification = {"category": "high_interest"}
     mock_client = MagicMock()
@@ -76,3 +76,16 @@ def test_high_interest_always_uses_llm_even_with_keep_warm_template_set():
 
     assert result == {"subject": "Re: hi", "body": "Tell me more."}
     mock_client.messages.create.assert_called_once()
+
+
+def test_high_interest_template_used_verbatim():
+    preferences = {"high_interest_template": "Hi <name>, very interested in <company>."}
+    classification = {"category": "high_interest", "company": "Acme Health"}
+    mock_client = MagicMock()
+
+    result = draft_writer.generate_draft(
+        classification, _thread(), preferences, client=mock_client
+    )
+
+    assert result["body"] == "Hi Dan, very interested in Acme Health."
+    mock_client.messages.create.assert_not_called()

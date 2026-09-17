@@ -24,10 +24,10 @@ CREATE TABLE IF NOT EXISTS preferences (
     -- (confidently a strong match).
     keep_warm_auto_send_max_fit INTEGER,
     high_interest_auto_send_min_fit INTEGER,
-    -- Optional custom instructions for keep_warm replies. Empty means fall
-    -- back to draft_writer.py's built-in three-part default.
+    -- Optional custom instructions for keep_warm/high_interest replies.
+    -- Empty means fall back to draft_writer.py's built-in defaults.
     keep_warm_template TEXT NOT NULL DEFAULT '',
-    tone_notes TEXT NOT NULL DEFAULT '',
+    high_interest_template TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT preferences_single_row CHECK (id = 1)
 );
@@ -62,6 +62,12 @@ CREATE TABLE IF NOT EXISTS triage_records (
 CREATE TABLE IF NOT EXISTS run_state (
     id INTEGER PRIMARY KEY DEFAULT 1,
     last_run_at TIMESTAMPTZ,
+    -- GitHub Actions run id of an in-flight "Run now" dispatch, so the
+    -- dashboard's run-status panel can resume on page load instead of
+    -- losing track of work that's actually still happening server-side.
+    -- BIGINT because GH run ids exceed Postgres's INTEGER range. Cleared
+    -- back to NULL once that run is observed as completed.
+    active_run_id BIGINT,
     CONSTRAINT run_state_single_row CHECK (id = 1)
 );
 
@@ -75,3 +81,6 @@ ALTER TABLE triage_records ADD COLUMN IF NOT EXISTS fit_score INTEGER;
 ALTER TABLE preferences ADD COLUMN IF NOT EXISTS keep_warm_auto_send_max_fit INTEGER;
 ALTER TABLE preferences ADD COLUMN IF NOT EXISTS high_interest_auto_send_min_fit INTEGER;
 ALTER TABLE preferences ADD COLUMN IF NOT EXISTS keep_warm_template TEXT NOT NULL DEFAULT '';
+ALTER TABLE preferences ADD COLUMN IF NOT EXISTS high_interest_template TEXT NOT NULL DEFAULT '';
+ALTER TABLE preferences DROP COLUMN IF EXISTS tone_notes;
+ALTER TABLE run_state ADD COLUMN IF NOT EXISTS active_run_id BIGINT;

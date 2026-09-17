@@ -629,7 +629,7 @@ form.prefs label {
   display: block;
   font-weight: 600;
   font-size: 13.5px;
-  margin: 18px 0 6px;
+  margin: 26px 0 8px;
 }
 
 form.prefs label:first-child {
@@ -694,17 +694,25 @@ form.prefs input:disabled {
 .autonomy-panel {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 14px 16px;
+  padding: 20px 22px 24px;
   margin-top: 10px;
   background: var(--bg);
 }
 
 .autonomy-panel label[for] {
-  margin-top: 14px;
+  margin-top: 20px;
 }
 
 .autonomy-panel label[for]:first-of-type {
   margin-top: 0;
+}
+
+.autonomy-panel .warning {
+  margin-bottom: 6px;
+}
+
+.template-input {
+  min-height: 160px;
 }
 
 .radio-group {

@@ -17,20 +17,21 @@ function StepIcon({ status, conclusion }) {
   return <span className="step-icon step-icon-pending">○</span>
 }
 
-export default function RunControls() {
+// `initialRunId` comes from run_state.active_run_id (Postgres) - set by
+// /api/run-now and cleared once /api/run-status observes completion. That
+// round trip is what lets this component pick up a still-running run on a
+// fresh page load instead of forgetting about work that's actually still
+// happening on GitHub's servers.
+export default function RunControls({ initialRunId }) {
   // idle | starting | running | done | error
-  const [phase, setPhase] = useState('idle')
-  const [runId, setRunId] = useState(null)
+  const [phase, setPhase] = useState(initialRunId ? 'running' : 'idle')
+  const [runId, setRunId] = useState(initialRunId || null)
   const [steps, setSteps] = useState([])
   const [conclusion, setConclusion] = useState(null)
   const [htmlUrl, setHtmlUrl] = useState(null)
   const [message, setMessage] = useState(null)
   const pollRef = useRef(null)
   const router = useRouter()
-
-  useEffect(() => {
-    return () => clearInterval(pollRef.current)
-  }, [])
 
   function stopPolling() {
     clearInterval(pollRef.current)
@@ -56,6 +57,14 @@ export default function RunControls() {
       }
     }, POLL_MS)
   }
+
+  useEffect(() => {
+    if (initialRunId) {
+      pollStatus(initialRunId)
+    }
+    return () => clearInterval(pollRef.current)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function handleRunNow() {
     setPhase('starting')

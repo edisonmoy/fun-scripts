@@ -12,7 +12,7 @@ function fmtDate(value) {
 }
 
 async function getRunState() {
-  const { rows } = await query('SELECT last_run_at FROM run_state WHERE id = 1')
+  const { rows } = await query('SELECT last_run_at, active_run_id FROM run_state WHERE id = 1')
   return rows[0] || null
 }
 
@@ -106,7 +106,7 @@ export default async function DashboardPage({ searchParams }) {
       </div>
 
       <div className="run-section">
-        <RunControls />
+        <RunControls initialRunId={runState?.active_run_id || null} />
       </div>
 
       <div className="tabs-row">
@@ -128,12 +128,6 @@ export default async function DashboardPage({ searchParams }) {
             href={buildHref(current, { category: 'high_interest', view: null })}
           >
             High Interest
-          </Link>
-          <Link
-            className={!view && category === 'ignore' ? 'active' : ''}
-            href={buildHref(current, { category: 'ignore', view: null })}
-          >
-            Ignore (category)
           </Link>
           <Link
             className={view === 'pending' ? 'active' : ''}

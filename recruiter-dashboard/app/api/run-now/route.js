@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { query } from '../../../lib/db'
 
 const OWNER = 'edisonmoy'
 const REPO = 'fun-scripts'
@@ -65,5 +66,10 @@ export async function POST() {
   }
 
   const runId = await findNewRunId(token, dispatchedAt)
+  if (runId) {
+    // Persisted server-side so the run-status panel can resume on a fresh
+    // page load instead of losing track of work that's still happening.
+    await query('UPDATE run_state SET active_run_id = $1 WHERE id = 1', [runId])
+  }
   return NextResponse.json({ ok: true, runId })
 }

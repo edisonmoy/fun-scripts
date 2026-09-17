@@ -2,6 +2,11 @@
 
 import { useState } from 'react'
 
+const DEFAULT_KEEP_WARM_HINT =
+  "Leave blank to use the default: thanks, one specific comment, then 'Happy to reconnect if things change in the future.'"
+const DEFAULT_HIGH_INTEREST_HINT =
+  'Leave blank to let the model draft a substantive reply with a clarifying question.'
+
 export default function PreferencesForm({ initial }) {
   const [form, setForm] = useState({
     target_areas: initial.target_areas || '',
@@ -13,7 +18,7 @@ export default function PreferencesForm({ initial }) {
     keep_warm_auto_send_max_fit: initial.keep_warm_auto_send_max_fit ?? '',
     high_interest_auto_send_min_fit: initial.high_interest_auto_send_min_fit ?? '',
     keep_warm_template: initial.keep_warm_template || '',
-    tone_notes: initial.tone_notes || '',
+    high_interest_template: initial.high_interest_template || '',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -76,7 +81,7 @@ export default function PreferencesForm({ initial }) {
         onChange={(e) => update('seniority', e.target.value)}
       />
 
-      <label htmlFor="comp_floor">Comp floor (optional)</label>
+      <label htmlFor="comp_floor">Comp floor</label>
       <input
         id="comp_floor"
         type="number"
@@ -148,6 +153,15 @@ export default function PreferencesForm({ initial }) {
             value={form.keep_warm_auto_send_max_fit}
             onChange={(e) => update('keep_warm_auto_send_max_fit', e.target.value)}
           />
+
+          <label htmlFor="keep_warm_template">Response template</label>
+          <textarea
+            id="keep_warm_template"
+            className="template-input"
+            value={form.keep_warm_template}
+            onChange={(e) => update('keep_warm_template', e.target.value)}
+            placeholder={DEFAULT_KEEP_WARM_HINT}
+          />
         </div>
       )}
 
@@ -189,24 +203,17 @@ export default function PreferencesForm({ initial }) {
             value={form.high_interest_auto_send_min_fit}
             onChange={(e) => update('high_interest_auto_send_min_fit', e.target.value)}
           />
+
+          <label htmlFor="high_interest_template">Response template</label>
+          <textarea
+            id="high_interest_template"
+            className="template-input"
+            value={form.high_interest_template}
+            onChange={(e) => update('high_interest_template', e.target.value)}
+            placeholder={DEFAULT_HIGH_INTEREST_HINT}
+          />
         </div>
       )}
-
-      <label htmlFor="keep_warm_template">Keep-warm response template (optional)</label>
-      <textarea
-        id="keep_warm_template"
-        value={form.keep_warm_template}
-        onChange={(e) => update('keep_warm_template', e.target.value)}
-        placeholder="Leave blank to use the default: thanks, one specific comment, then 'Happy to reconnect if things change in the future.'"
-      />
-
-      <label htmlFor="tone_notes">Tone notes</label>
-      <textarea
-        id="tone_notes"
-        value={form.tone_notes}
-        onChange={(e) => update('tone_notes', e.target.value)}
-        placeholder="Notes for the model on how drafts should sound"
-      />
 
       <div className="save-row">
         <button type="submit" className="btn btn-primary" disabled={saving}>

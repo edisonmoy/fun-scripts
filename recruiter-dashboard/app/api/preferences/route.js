@@ -26,7 +26,7 @@ export async function PUT(request) {
     keep_warm_auto_send_max_fit = null,
     high_interest_auto_send_min_fit = null,
     keep_warm_template = '',
-    tone_notes = '',
+    high_interest_template = '',
   } = body || {}
 
   if (!AUTONOMY_VALUES.has(autonomy_keep_warm)) {
@@ -83,10 +83,10 @@ export async function PUT(request) {
          company_excludes = $4,
          autonomy_keep_warm = $5,
          autonomy_high_interest = $6,
-         tone_notes = $7,
-         keep_warm_auto_send_max_fit = $8,
-         high_interest_auto_send_min_fit = $9,
-         keep_warm_template = $10,
+         keep_warm_auto_send_max_fit = $7,
+         high_interest_auto_send_min_fit = $8,
+         keep_warm_template = $9,
+         high_interest_template = $10,
          updated_at = now()
      WHERE id = 1
      RETURNING *`,
@@ -97,10 +97,10 @@ export async function PUT(request) {
       company_excludes,
       autonomy_keep_warm,
       autonomy_high_interest,
-      tone_notes,
       keepWarmThresholdValue,
       highInterestThresholdValue,
       keep_warm_template,
+      high_interest_template,
     ]
   )
 

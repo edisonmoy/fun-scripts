@@ -34,7 +34,6 @@ def test_classify_returns_tool_input():
         "seniority": "",
         "comp_floor": None,
         "company_excludes": "",
-        "tone_notes": "",
     }
 
     result = classifier.classify(thread, preferences, client=mock_client)

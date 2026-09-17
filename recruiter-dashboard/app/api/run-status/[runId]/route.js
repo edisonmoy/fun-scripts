@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { query } from '../../../../lib/db'
 
 const OWNER = 'edisonmoy'
 const REPO = 'fun-scripts'
@@ -36,6 +37,16 @@ export async function GET(request, { params }) {
 
   const run = await runRes.json()
   const jobs = jobsRes.ok ? await jobsRes.json() : { jobs: [] }
+
+  if (run.status === 'completed') {
+    // Only clear if it's still this run being tracked - avoids clobbering
+    // a newer run_state.active_run_id set by a dispatch that happened
+    // while this poll was in flight.
+    await query(
+      'UPDATE run_state SET active_run_id = NULL WHERE id = 1 AND active_run_id = $1',
+      [runId]
+    )
+  }
 
   const steps = (jobs.jobs || []).flatMap((job) =>
     (job.steps || []).map((step) => ({

@@ -107,6 +107,18 @@ export default function RecordRow({
     }
   }
 
+  // Fade out locally, then unmount and let a background refresh reconcile
+  // the real state. `removed` persists across that refresh since this is
+  // the same component instance, so the row stays out of the list rather
+  // than reappearing.
+  function animateAway() {
+    setLeaving(true)
+    setTimeout(() => {
+      setRemoved(true)
+      router.refresh()
+    }, 280)
+  }
+
   async function handleSend(e) {
     e.stopPropagation()
     setSendState('sending')
@@ -125,18 +137,31 @@ export default function RecordRow({
       // scheduled run - this is what makes "Send" actually send promptly.
       await fetch('/api/run-now', { method: 'POST' })
       setSendState('queued')
-      setLeaving(true)
-      // Fade out locally, then unmount and let a background refresh
-      // reconcile the real (now approved_pending) state. `removed` persists
-      // across that refresh since this is the same component instance, so
-      // the row stays out of the list rather than reappearing.
-      setTimeout(() => {
-        setRemoved(true)
-        router.refresh()
-      }, 280)
+      animateAway()
     } catch (err) {
       setError(err.message)
       setSendState('idle')
+    }
+  }
+
+  async function handleIgnore(e) {
+    e.stopPropagation()
+    setPending(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/triage/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category: 'ignore', status: 'ignored' }),
+      })
+      if (!res.ok) {
+        const respBody = await res.json().catch(() => ({}))
+        throw new Error(respBody.error || `request failed (${res.status})`)
+      }
+      animateAway()
+    } catch (err) {
+      setError(err.message)
+      setPending(false)
     }
   }
 
@@ -187,15 +212,11 @@ export default function RecordRow({
           </button>
           <button
             type="button"
-            className="toggle-link"
-            aria-expanded={expanded}
-            onClick={(e) => {
-              e.stopPropagation()
-              setExpanded((v) => !v)
-            }}
+            className="btn btn-sm"
+            disabled={pending || sendState === 'sending'}
+            onClick={handleIgnore}
           >
-            More
-            <span className={`toggle-arrow ${expanded ? 'toggle-arrow-open' : ''}`}>▾</span>
+            Ignore
           </button>
           {error && <span className="warning"> {error}</span>}
         </div>

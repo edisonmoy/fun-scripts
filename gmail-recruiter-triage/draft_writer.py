@@ -31,6 +31,18 @@ DEFAULT_KEEP_WARM_STYLE = (
     "anything beyond those three parts."
 )
 
+DEFAULT_HIGH_INTEREST_STYLE = (
+    "Write a more substantive reply that shows genuine interest in this "
+    "specific opportunity. Ask one clarifying question or request more "
+    "information (e.g. more detail on the role's scope, team, or comp) so "
+    "the conversation has somewhere concrete to go next."
+)
+
+TEMPLATE_PREFERENCE_KEYS = {
+    "keep_warm": "keep_warm_template",
+    "high_interest": "high_interest_template",
+}
+
 # Matches Edison's own placeholder tokens in a custom keep_warm_template,
 # e.g. <name>, <company>, <role>. Case-insensitive.
 _PLACEHOLDER_PATTERN = re.compile(r"<(\w+)>", re.IGNORECASE)
@@ -64,18 +76,12 @@ def _fill_template(template, thread, classification):
 
 def _build_prompt(classification, thread, preferences):
     if classification.get("category") == "high_interest":
-        style = (
-            "Write a more substantive reply that shows genuine interest in this "
-            "specific opportunity. Ask one clarifying question or request more "
-            "information (e.g. more detail on the role's scope, team, or comp) so "
-            "the conversation has somewhere concrete to go next."
-        )
+        style = DEFAULT_HIGH_INTEREST_STYLE
     else:
         style = DEFAULT_KEEP_WARM_STYLE
 
     return (
         "Draft an email reply to the recruiter thread below, on Edison's behalf.\n\n"
-        f"Tone notes from Edison: {preferences.get('tone_notes', '')}\n\n"
         f"{style}\n\n"
         "Critical: your reply MUST reference the SPECIFIC company, role, or other "
         "concrete detail from the email below. Never write a generic template reply - "
@@ -104,17 +110,20 @@ def generate_draft(classification, thread, preferences, client=None):
     db_client.get_preferences()'s return value. Returns
     {"subject": str, "body": str}.
 
-    If Edison has set a custom keep_warm_template preference and this is a
-    keep_warm email, that template is used EXACTLY as written (placeholder
-    tokens like <name> filled in deterministically) - no LLM call, no
-    rewriting. Only when no custom template is set does the model draft a
-    reply from the built-in style instructions, in which case the prompt
-    explicitly requires referencing the specific company/role/detail from
-    the original email - a generic-sounding templated reply is the failure
-    mode to avoid there, since recruiters can spot one instantly.
+    If Edison has set a custom template preference for this category
+    (keep_warm_template or high_interest_template), that template is used
+    EXACTLY as written (placeholder tokens like <name> filled in
+    deterministically) - no LLM call, no rewriting. Only when no custom
+    template is set for the category does the model draft a reply from the
+    built-in style instructions, in which case the prompt explicitly
+    requires referencing the specific company/role/detail from the original
+    email - a generic-sounding templated reply is the failure mode to avoid
+    there, since recruiters can spot one instantly.
     """
-    template = preferences.get("keep_warm_template")
-    if classification.get("category") == "keep_warm" and template:
+    category = classification.get("category")
+    template_key = TEMPLATE_PREFERENCE_KEYS.get(category)
+    template = preferences.get(template_key) if template_key else None
+    if template:
         return {
             "subject": f"Re: {thread.get('subject', '')}",
             "body": _fill_template(template, thread, classification),
