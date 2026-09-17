@@ -19,6 +19,29 @@
   --radius-lg: 14px;
   --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04);
   --shadow-md: 0 2px 8px rgba(16, 24, 40, 0.06);
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 140ms;
+  --dur-base: 180ms;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 * {
@@ -172,6 +195,7 @@ a {
   background: var(--surface);
   box-shadow: var(--shadow-sm);
   padding: 14px 16px;
+  animation: fadeInUp var(--dur-base) var(--ease) both;
 }
 
 .run-panel-header {
@@ -196,6 +220,7 @@ a {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  animation: fadeInUp var(--dur-base) var(--ease) both;
 }
 
 .run-steps li {
@@ -208,10 +233,12 @@ a {
 
 .run-note {
   margin-top: 12px;
+  animation: fadeIn var(--dur-base) var(--ease) both;
 }
 
 .run-panel > .btn {
   margin-top: 14px;
+  animation: fadeIn var(--dur-base) var(--ease) both;
 }
 
 .step-icon {
@@ -224,6 +251,7 @@ a {
   font-size: 11px;
   font-weight: 700;
   border-radius: 999px;
+  transition: background var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
 }
 
 .step-icon-success { background: var(--success-soft); color: var(--success); }
@@ -288,7 +316,7 @@ a {
   margin-left: 4px;
   font-size: 15px;
   line-height: 1;
-  transition: transform 0.15s ease;
+  transition: transform var(--dur-fast) var(--ease);
 }
 
 .sort-row {
@@ -328,7 +356,8 @@ a {
   text-decoration: none;
   color: var(--text-muted);
   background: var(--surface);
-  transition: border-color 0.12s ease, color 0.12s ease;
+  transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
 }
 
 .tabs a:hover {
@@ -356,7 +385,7 @@ a {
 .row {
   border-bottom: 1px solid var(--border);
   border-left: 3px solid transparent;
-  transition: opacity 0.28s ease, transform 0.28s ease;
+  transition: opacity 0.24s var(--ease), transform 0.24s var(--ease);
 }
 
 .row-removing {
@@ -465,6 +494,7 @@ a {
   display: block;
   height: 100%;
   border-radius: 999px;
+  transition: width 0.3s var(--ease);
 }
 
 .fit-meter-low { background: var(--danger); }
@@ -505,6 +535,7 @@ a {
   flex-wrap: wrap;
   gap: 8px 14px;
   padding: 0 16px 18px 19px;
+  animation: fadeInUp var(--dur-base) var(--ease) both;
 }
 
 .btn-sm {
@@ -515,6 +546,7 @@ a {
 .row-detail {
   padding: 8px 18px 22px 19px;
   font-size: 13.5px;
+  animation: fadeInUp var(--dur-base) var(--ease) both;
 }
 
 .row-detail-label {
@@ -646,8 +678,8 @@ button {
   padding: 7px 16px;
   background: var(--bg);
   color: var(--text);
-  transition: background 0.12s ease, border-color 0.12s ease, opacity 0.12s ease,
-    transform 0.08s ease;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+    opacity var(--dur-fast) var(--ease), transform 0.08s var(--ease);
 }
 
 .btn:hover {
@@ -785,6 +817,8 @@ form.prefs input:disabled {
   font-size: 13px;
   font-weight: 500;
   border-radius: 999px;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
 }
 
 .subtabs button.active {
@@ -799,6 +833,7 @@ form.prefs input:disabled {
   padding: 20px 22px 24px;
   margin-top: 10px;
   background: var(--bg);
+  animation: fadeInUp var(--dur-base) var(--ease) both;
 }
 
 .autonomy-panel label[for] {
@@ -841,6 +876,7 @@ form.prefs .radio-group label {
   color: var(--danger);
   font-size: 12.5px;
   margin-top: 6px;
+  animation: fadeIn var(--dur-fast) var(--ease) both;
 }
 
 .save-row {

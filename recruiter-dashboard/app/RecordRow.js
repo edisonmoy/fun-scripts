@@ -116,7 +116,7 @@ export default function RecordRow({
     setTimeout(() => {
       setRemoved(true)
       router.refresh()
-    }, 280)
+    }, 240)
   }
 
   // Optimistic: animate away immediately since this almost always succeeds.

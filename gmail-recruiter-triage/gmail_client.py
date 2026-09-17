@@ -175,4 +175,12 @@ def send_reply(thread_id, to, subject, body):
         .send(userId="me", body={"raw": raw, "threadId": thread_id})
         .execute()
     )
+
+    # Edison has now replied - the thread shouldn't linger in the inbox as
+    # unread just because the reply came from an API call instead of Gmail
+    # itself.
+    service.users().threads().modify(
+        userId="me", id=thread_id, body={"removeLabelIds": ["UNREAD"]}
+    ).execute()
+
     return sent["id"]
