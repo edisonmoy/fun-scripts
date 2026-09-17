@@ -19,13 +19,5 @@
       "party_size": 2,
       "reservation_id": 928523884
     }
-  },
-  {
-    "key": "webapp-smoke-test-safe",
-    "venue_name": "Pizza 4P's Brooklyn",
-    "venue_id": 98384,
-    "request": "test",
-    "enabled": false,
-    "dry_run": true
   }
 ]
