@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS triage_records (
     sender TEXT,
     subject TEXT,
     category TEXT NOT NULL CHECK (category IN ('ignore', 'keep_warm', 'high_interest')),
+    fit_score INTEGER,
     extracted_json JSONB NOT NULL DEFAULT '{}',
     rationale TEXT,
     gmail_draft_id TEXT,
@@ -54,3 +55,8 @@ CREATE TABLE IF NOT EXISTS run_state (
 
 INSERT INTO preferences (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 INSERT INTO run_state (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+
+-- Migration for databases created before fit_score existed - CREATE TABLE
+-- IF NOT EXISTS above is a no-op against an already-live table, so this
+-- covers upgrading it in place. Safe to run every time.
+ALTER TABLE triage_records ADD COLUMN IF NOT EXISTS fit_score INTEGER;

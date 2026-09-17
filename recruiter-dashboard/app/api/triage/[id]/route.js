@@ -6,6 +6,10 @@ import { query } from '../../../../lib/db'
 // 'drafted') - those are set by the triage job itself.
 const ALLOWED_STATUSES = new Set(['approved_pending', 'rejected'])
 
+// Lets the dashboard reclassify a record (e.g. "actually this looks more
+// serious than keep_warm") - a manual correction, independent of status.
+const ALLOWED_CATEGORIES = new Set(['ignore', 'keep_warm', 'high_interest'])
+
 export async function PATCH(request, context) {
   const { id } = await context.params
   if (!/^\d+$/.test(id)) {
@@ -19,20 +23,38 @@ export async function PATCH(request, context) {
     return NextResponse.json({ error: 'invalid JSON body' }, { status: 400 })
   }
 
-  const { status } = body || {}
-  if (!ALLOWED_STATUSES.has(status)) {
+  const { status, category } = body || {}
+  if (status === undefined && category === undefined) {
+    return NextResponse.json({ error: 'must provide status and/or category' }, { status: 400 })
+  }
+  if (status !== undefined && !ALLOWED_STATUSES.has(status)) {
     return NextResponse.json(
       { error: `status must be one of: ${[...ALLOWED_STATUSES].join(', ')}` },
       { status: 400 }
     )
   }
+  if (category !== undefined && !ALLOWED_CATEGORIES.has(category)) {
+    return NextResponse.json(
+      { error: `category must be one of: ${[...ALLOWED_CATEGORIES].join(', ')}` },
+      { status: 400 }
+    )
+  }
+
+  const sets = ['updated_at = now()']
+  const params = []
+  if (status !== undefined) {
+    params.push(status)
+    sets.push(`status = $${params.length}`)
+  }
+  if (category !== undefined) {
+    params.push(category)
+    sets.push(`category = $${params.length}`)
+  }
+  params.push(id)
 
   const { rows } = await query(
-    `UPDATE triage_records
-     SET status = $1, updated_at = now()
-     WHERE id = $2
-     RETURNING *`,
-    [status, id]
+    `UPDATE triage_records SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`,
+    params
   )
 
   if (rows.length === 0) {

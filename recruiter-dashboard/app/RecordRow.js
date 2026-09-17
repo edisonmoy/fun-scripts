@@ -17,6 +17,28 @@ const STATUS_LABELS = {
   rejected: 'Rejected',
 }
 
+function fitTier(score) {
+  if (score >= 70) return 'high'
+  if (score >= 40) return 'mid'
+  return 'low'
+}
+
+function FitMeter({ score }) {
+  if (score === null || score === undefined) return null
+  const clamped = Math.max(0, Math.min(100, score))
+  return (
+    <span className="fit-meter" title={`Fit score: ${clamped}/100`}>
+      <span className="fit-meter-track">
+        <span
+          className={`fit-meter-fill fit-meter-${fitTier(clamped)}`}
+          style={{ width: `${clamped}%` }}
+        />
+      </span>
+      <span className="fit-meter-label">{clamped}</span>
+    </span>
+  )
+}
+
 function ExtractedFields({ extracted }) {
   const data = extracted || {}
   const fields = [
@@ -48,6 +70,7 @@ export default function RecordRow({
   dateDisplay,
   category,
   status,
+  fitScore,
   extracted,
   summary,
   rationale,
@@ -58,21 +81,24 @@ export default function RecordRow({
   const [expanded, setExpanded] = useState(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState(null)
+  const [sendState, setSendState] = useState('idle') // idle | sending | queued
+  const [leaving, setLeaving] = useState(false)
+  const [removed, setRemoved] = useState(false)
   const router = useRouter()
 
-  async function setStatus(next, e) {
-    e.stopPropagation()
+  async function patch(body, e) {
+    e?.stopPropagation()
     setPending(true)
     setError(null)
     try {
       const res = await fetch(`/api/triage/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: next }),
+        body: JSON.stringify(body),
       })
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body.error || `request failed (${res.status})`)
+        const respBody = await res.json().catch(() => ({}))
+        throw new Error(respBody.error || `request failed (${res.status})`)
       }
       router.refresh()
     } catch (err) {
@@ -81,8 +107,49 @@ export default function RecordRow({
     }
   }
 
+  async function handleSend(e) {
+    e.stopPropagation()
+    setSendState('sending')
+    setError(null)
+    try {
+      const patchRes = await fetch(`/api/triage/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'approved_pending' }),
+      })
+      if (!patchRes.ok) {
+        const respBody = await patchRes.json().catch(() => ({}))
+        throw new Error(respBody.error || `request failed (${patchRes.status})`)
+      }
+      // Trigger the automation right away rather than waiting for the next
+      // scheduled run - this is what makes "Send" actually send promptly.
+      await fetch('/api/run-now', { method: 'POST' })
+      setSendState('queued')
+      setLeaving(true)
+      // Fade out locally, then unmount and let a background refresh
+      // reconcile the real (now approved_pending) state. `removed` persists
+      // across that refresh since this is the same component instance, so
+      // the row stays out of the list rather than reappearing.
+      setTimeout(() => {
+        setRemoved(true)
+        router.refresh()
+      }, 280)
+    } catch (err) {
+      setError(err.message)
+      setSendState('idle')
+    }
+  }
+
+  if (removed) return null
+
+  const isQuickSend = category === 'keep_warm' && status === 'drafted'
+
   return (
-    <div className={`row row-${category} ${expanded ? 'row-expanded' : ''}`}>
+    <div
+      className={`row row-${category} ${expanded ? 'row-expanded' : ''} ${
+        leaving ? 'row-removing' : ''
+      }`}
+    >
       <button
         type="button"
         className="row-summary"
@@ -96,8 +163,48 @@ export default function RecordRow({
         <span className="row-meta">
           <span className="row-status">{STATUS_LABELS[status] || status}</span>
           <span className="row-date">{dateDisplay}</span>
+          <span className={`toggle-arrow ${expanded ? 'toggle-arrow-open' : ''}`}>▾</span>
         </span>
       </button>
+
+      <div className="row-preview">
+        <FitMeter score={fitScore} />
+        {rationale && <span className="row-blurb">{rationale}</span>}
+      </div>
+
+      {isQuickSend && sendState !== 'queued' && (
+        <div className="row-quick-actions">
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={sendState === 'sending'}
+            onClick={handleSend}
+          >
+            {sendState === 'sending' ? 'Sending…' : 'Send'}
+          </button>
+          <button
+            type="button"
+            className="toggle-link"
+            aria-expanded={expanded}
+            onClick={(e) => {
+              e.stopPropagation()
+              setExpanded((v) => !v)
+            }}
+          >
+            Other options
+            <span className={`toggle-arrow ${expanded ? 'toggle-arrow-open' : ''}`}>▾</span>
+          </button>
+          {error && <span className="warning"> {error}</span>}
+        </div>
+      )}
+
+      {isQuickSend && sendState === 'queued' && (
+        <div className="row-quick-actions">
+          <span className="muted">
+            Queued to send, safe to leave this open or come back later.
+          </span>
+        </div>
+      )}
 
       {expanded && (
         <div className="row-detail">
@@ -131,17 +238,26 @@ export default function RecordRow({
                 <button
                   className="btn btn-success"
                   disabled={pending}
-                  onClick={(e) => setStatus('approved_pending', e)}
+                  onClick={(e) => patch({ status: 'approved_pending' }, e)}
                 >
                   Approve
                 </button>
                 <button
                   className="btn btn-danger"
                   disabled={pending}
-                  onClick={(e) => setStatus('rejected', e)}
+                  onClick={(e) => patch({ status: 'rejected' }, e)}
                 >
                   Reject
                 </button>
+                {category === 'keep_warm' && (
+                  <button
+                    className="btn"
+                    disabled={pending}
+                    onClick={(e) => patch({ category: 'high_interest' }, e)}
+                  >
+                    Mark as high interest
+                  </button>
+                )}
               </div>
               {error && <div className="warning">{error}</div>}
             </div>

@@ -117,6 +117,7 @@ export default async function DashboardPage({ searchParams }) {
             dateDisplay={fmtDate(record.received_at) || fmtDate(record.created_at)}
             category={record.category}
             status={record.status}
+            fitScore={record.fit_score}
             extracted={record.extracted_json}
             summary={record.extracted_json?.summary}
             rationale={record.rationale}

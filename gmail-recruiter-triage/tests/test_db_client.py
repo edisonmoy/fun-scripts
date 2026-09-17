@@ -81,6 +81,21 @@ def test_upsert_triage_record_returns_id(monkeypatch):
     assert params[0] == "thread-1"
 
 
+def test_get_missing_fit_score_returns_rows(monkeypatch):
+    rows = [{"id": 1, "gmail_thread_id": "t1", "fit_score": None}]
+    _install_fake_connection(monkeypatch, fetchall_value=rows)
+    assert db_client.get_missing_fit_score() == rows
+
+
+def test_update_fit_score_executes_update(monkeypatch):
+    _, cursor = _install_fake_connection(monkeypatch)
+    db_client.update_fit_score(42, 65, "some rationale")
+    query, params = cursor.executed[-1]
+    assert "UPDATE triage_records" in query
+    assert "fit_score" in query
+    assert params == (65, "some rationale", 42)
+
+
 def test_get_approved_pending_returns_rows(monkeypatch):
     rows = [{"id": 1, "gmail_draft_id": "d1"}]
     _install_fake_connection(monkeypatch, fetchall_value=rows)

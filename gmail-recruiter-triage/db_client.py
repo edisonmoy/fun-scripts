@@ -74,11 +74,13 @@ def upsert_triage_record(
     status,
     draft_subject=None,
     draft_body=None,
+    fit_score=None,
 ):
     """Insert or update the triage_records row for `thread_id`. Returns the
     row's id. `draft_subject`/`draft_body` are the actual reply text (if a
     draft was generated) so the dashboard can display it without needing
-    Gmail API access itself.
+    Gmail API access itself. `fit_score` (0-100, from the classifier) drives
+    the dashboard's fit meter.
     """
     conn = get_connection()
     with conn.cursor() as cur:
@@ -86,15 +88,16 @@ def upsert_triage_record(
             """
             INSERT INTO triage_records (
                 gmail_thread_id, received_at, sender, subject, category,
-                extracted_json, rationale, gmail_draft_id, status,
+                fit_score, extracted_json, rationale, gmail_draft_id, status,
                 draft_subject, draft_body
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (gmail_thread_id) DO UPDATE SET
                 received_at = EXCLUDED.received_at,
                 sender = EXCLUDED.sender,
                 subject = EXCLUDED.subject,
                 category = EXCLUDED.category,
+                fit_score = EXCLUDED.fit_score,
                 extracted_json = EXCLUDED.extracted_json,
                 rationale = EXCLUDED.rationale,
                 gmail_draft_id = EXCLUDED.gmail_draft_id,
@@ -110,6 +113,7 @@ def upsert_triage_record(
                 sender,
                 subject,
                 category,
+                fit_score,
                 Jsonb(extracted),
                 rationale,
                 gmail_draft_id,
@@ -119,6 +123,33 @@ def upsert_triage_record(
             ),
         )
         return cur.fetchone()["id"]
+
+
+def get_missing_fit_score():
+    """Rows classified before fit_score existed (or where it's otherwise
+    null). Used to backfill the dashboard's fit meter without waiting for
+    those threads to naturally reappear as new candidates.
+    """
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT * FROM triage_records WHERE fit_score IS NULL AND category != 'ignore'"
+        )
+        return cur.fetchall()
+
+
+def update_fit_score(record_id, fit_score, rationale):
+    """Backfill fit_score/rationale for an already-triaged row, without
+    touching its status, draft, or Gmail label - this is a re-scoring, not
+    a re-triage.
+    """
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE triage_records SET fit_score = %s, rationale = %s, updated_at = now() "
+            "WHERE id = %s",
+            (fit_score, rationale, record_id),
+        )
 
 
 def get_approved_pending():

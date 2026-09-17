@@ -151,6 +151,51 @@ def test_process_candidate_thread_quality_gate_failure_never_sends(monkeypatch):
     assert counts["keep_warm"] == 1
 
 
+def test_backfill_fit_scores_updates_missing_rows(monkeypatch):
+    monkeypatch.setattr(
+        main.db_client,
+        "get_missing_fit_score",
+        lambda: [{"id": 1, "gmail_thread_id": "thread-1"}],
+    )
+    monkeypatch.setattr(main.gmail_client, "get_thread_plaintext", lambda tid: _thread())
+    monkeypatch.setattr(
+        main.classifier,
+        "classify",
+        lambda thread, prefs: {"fit_score": 62, "rationale": "updated rationale"},
+    )
+    update_mock = MagicMock()
+    monkeypatch.setattr(main.db_client, "update_fit_score", update_mock)
+
+    counts = _counts()
+    main.backfill_fit_scores({}, counts)
+
+    update_mock.assert_called_once_with(1, 62, "updated rationale")
+    assert counts["backfilled"] == 1
+    assert counts["backfill_failed"] == 0
+
+
+def test_backfill_fit_scores_handles_failure(monkeypatch):
+    monkeypatch.setattr(
+        main.db_client,
+        "get_missing_fit_score",
+        lambda: [{"id": 1, "gmail_thread_id": "thread-1"}],
+    )
+    monkeypatch.setattr(
+        main.gmail_client,
+        "get_thread_plaintext",
+        MagicMock(side_effect=Exception("boom")),
+    )
+    update_mock = MagicMock()
+    monkeypatch.setattr(main.db_client, "update_fit_score", update_mock)
+
+    counts = _counts()
+    main.backfill_fit_scores({}, counts)
+
+    update_mock.assert_not_called()
+    assert counts["backfilled"] == 0
+    assert counts["backfill_failed"] == 1
+
+
 def test_process_approved_pending_sends_and_marks_sent(monkeypatch):
     monkeypatch.setattr(
         main.db_client,

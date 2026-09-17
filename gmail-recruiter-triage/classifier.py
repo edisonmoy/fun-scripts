@@ -36,6 +36,17 @@ CLASSIFY_TOOL = {
                     "scheduling tooling), climate tech, or venture-studio-style roles."
                 ),
             },
+            "fit_score": {
+                "type": "integer",
+                "description": (
+                    "0-100: how well this opportunity matches Edison's stated "
+                    "preferences (target_areas, seniority, comp_floor). Roughly: "
+                    "0-39 generic outreach outside target_areas, 40-69 some overlap "
+                    "but not a strong match, 70-100 a strong match. Use the full "
+                    "range thoughtfully rather than only extremes - this drives a "
+                    "visual fit meter, not just the category bucket."
+                ),
+            },
             "company": {"type": ["string", "null"]},
             "role": {"type": ["string", "null"]},
             "seniority": {"type": ["string", "null"]},
@@ -54,14 +65,19 @@ CLASSIFY_TOOL = {
             "rationale": {
                 "type": "string",
                 "description": (
-                    "Why this category was chosen, explicitly referencing the stated "
-                    "preferences (target_areas, seniority, comp_floor, etc)."
+                    "Why this fit_score/category was chosen, explicitly referencing "
+                    "the stated preferences (target_areas, seniority, comp_floor, "
+                    "etc). Do NOT state or explain whether this is recruiter "
+                    "outreach - that determination is already made via "
+                    "is_recruiter_outreach and is not useful to repeat here. Focus "
+                    "only on the fit assessment itself."
                 ),
             },
         },
         "required": [
             "is_recruiter_outreach",
             "category",
+            "fit_score",
             "company",
             "role",
             "seniority",
