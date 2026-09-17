@@ -1,42 +1,150 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
+
+const POLL_MS = 3000
+
+function StepIcon({ status, conclusion }) {
+  if (status === 'completed') {
+    if (conclusion === 'success') return <span className="step-icon step-icon-success">✓</span>
+    if (conclusion === 'skipped' || conclusion === 'cancelled') {
+      return <span className="step-icon step-icon-skipped">–</span>
+    }
+    return <span className="step-icon step-icon-failure">✕</span>
+  }
+  if (status === 'in_progress') return <span className="step-icon spinner" />
+  return <span className="step-icon step-icon-pending">○</span>
+}
 
 export default function RunControls() {
-  const [status, setStatus] = useState('idle') // idle | running | done | error
+  // idle | starting | running | done | error
+  const [phase, setPhase] = useState('idle')
+  const [runId, setRunId] = useState(null)
+  const [steps, setSteps] = useState([])
+  const [conclusion, setConclusion] = useState(null)
+  const [htmlUrl, setHtmlUrl] = useState(null)
+  const [message, setMessage] = useState(null)
+  const pollRef = useRef(null)
+  const router = useRouter()
+
+  useEffect(() => {
+    return () => clearInterval(pollRef.current)
+  }, [])
+
+  function stopPolling() {
+    clearInterval(pollRef.current)
+    pollRef.current = null
+  }
+
+  function pollStatus(id) {
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/run-status/${id}`)
+        if (!res.ok) return
+        const data = await res.json()
+        setSteps(data.steps || [])
+        setHtmlUrl(data.htmlUrl || null)
+        if (data.status === 'completed') {
+          stopPolling()
+          setConclusion(data.conclusion)
+          setPhase('done')
+          router.refresh()
+        }
+      } catch {
+        // transient fetch error - just try again on the next tick
+      }
+    }, POLL_MS)
+  }
 
   async function handleRunNow() {
-    setStatus('running')
+    setPhase('starting')
+    setMessage(null)
+    setConclusion(null)
+    setSteps([])
     try {
       const res = await fetch('/api/run-now', { method: 'POST' })
-      setStatus(res.ok ? 'done' : 'error')
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setPhase('error')
+        setMessage(data.error || 'Failed to trigger the run.')
+        return
+      }
+      if (data.runId) {
+        setRunId(data.runId)
+        setPhase('running')
+        pollStatus(data.runId)
+      } else {
+        // Dispatched, but we couldn't locate the run to track live -
+        // still a success, just without a live checklist.
+        setPhase('error')
+        setMessage('Triggered, but could not attach live status — check the Actions tab.')
+      }
     } catch {
-      setStatus('error')
+      setPhase('error')
+      setMessage('Failed to trigger the run.')
     }
   }
 
+  function reset() {
+    setPhase('idle')
+    setRunId(null)
+    setSteps([])
+    setConclusion(null)
+    setMessage(null)
+  }
+
+  if (phase === 'idle' || phase === 'error') {
+    return (
+      <span className="run-controls">
+        <button type="button" className="btn btn-primary" onClick={handleRunNow}>
+          Run now
+        </button>
+        {message && <span className="warning"> {message}</span>}
+      </span>
+    )
+  }
+
   return (
-    <span className="run-controls">
-      <button type="button" className="btn btn-primary" onClick={handleRunNow} disabled={status === 'running'}>
-        {status === 'running' ? 'Starting…' : 'Run now'}
-      </button>
-      {status === 'done' && (
-        <span className="muted">
-          {' '}
-          Triggered —{' '}
-          <a
-            href="https://github.com/edisonmoy/fun-scripts/actions/workflows/gmail-recruiter-triage.yml"
-            target="_blank"
-            rel="noreferrer"
-          >
-            watch it run
-          </a>
-          , then reload this page in a minute or two.
+    <div className="run-panel">
+      <div className="run-panel-header">
+        {phase !== 'done' && <span className="step-icon spinner" />}
+        <span className="run-panel-title">
+          {phase === 'starting' && 'Starting…'}
+          {phase === 'running' && 'Running triage…'}
+          {phase === 'done' &&
+            (conclusion === 'success' ? 'Run complete' : `Run finished (${conclusion})`)}
         </span>
+        {htmlUrl && (
+          <a href={htmlUrl} target="_blank" rel="noreferrer" className="muted">
+            view on GitHub
+          </a>
+        )}
+      </div>
+
+      {steps.length > 0 && (
+        <ul className="run-steps">
+          {steps.map((step, i) => (
+            <li key={i}>
+              <StepIcon status={step.status} conclusion={step.conclusion} />
+              <span>{step.name}</span>
+            </li>
+          ))}
+        </ul>
       )}
-      {status === 'error' && (
-        <span className="warning"> Failed to trigger — check the Action manually.</span>
+
+      {phase !== 'done' && (
+        <div className="muted run-note">
+          This keeps running on GitHub even if you close this tab — it's fine to come back
+          later, new results will just be here waiting.
+        </div>
       )}
-    </span>
+
+      {phase === 'done' && (
+        <button type="button" className="btn" onClick={reset}>
+          Dismiss
+        </button>
+      )}
+    </div>
   )
 }

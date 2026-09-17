@@ -1,59 +1,14 @@
 import Link from 'next/link'
 import { query } from '../lib/db'
 import LogoutButton from './LogoutButton'
+import RecordRow from './RecordRow'
 import RunControls from './RunControls'
-import TriageActions from './TriageActions'
 
 export const dynamic = 'force-dynamic'
-
-const CATEGORY_LABELS = {
-  ignore: 'Ignore',
-  keep_warm: 'Keep Warm',
-  high_interest: 'High Interest',
-}
-
-const STATUS_LABELS = {
-  drafted: 'Drafted',
-  approved_pending: 'Approved (pending send)',
-  sent: 'Sent',
-  ignored: 'Ignored',
-  rejected: 'Rejected',
-}
-
-function badge(kind, value, label) {
-  return <span className={`badge badge-${kind}-${value}`}>{label}</span>
-}
 
 function fmtDate(value) {
   if (!value) return null
   return new Date(value).toLocaleString()
-}
-
-function ExtractedFields({ extracted }) {
-  const data = extracted || {}
-  const fields = [
-    ['Company', data.company],
-    ['Role', data.role],
-    ['Seniority', data.seniority],
-    ['Comp', data.comp],
-    ['Location', data.location_or_remote],
-  ].filter(([, v]) => v !== undefined && v !== null && v !== '')
-
-  return (
-    <div className="extracted">
-      {fields.length > 0 && (
-        <dl>
-          {fields.map(([label, value]) => (
-            <>
-              <dt key={`${label}-dt`}>{label}</dt>
-              <dd key={`${label}-dd`}>{String(value)}</dd>
-            </>
-          ))}
-        </dl>
-      )}
-      {data.summary && <div className="draft-text">{data.summary}</div>}
-    </div>
-  )
 }
 
 async function getRunState() {
@@ -111,11 +66,14 @@ export default async function DashboardPage({ searchParams }) {
             {runState?.last_run_at ? fmtDate(runState.last_run_at) : 'never'}
           </span>
           <nav>
-            <RunControls />
             <Link href="/preferences">Preferences</Link>
             <LogoutButton />
           </nav>
         </div>
+      </div>
+
+      <div className="run-section">
+        <RunControls />
       </div>
 
       <div className="tabs-row">
@@ -149,46 +107,25 @@ export default async function DashboardPage({ searchParams }) {
 
       {records.length === 0 && <div className="empty">No records match this filter.</div>}
 
-      {records.map((record) => (
-        <div className="record" key={record.id}>
-          <div className="record-top">
-            <div>
-              <div className="subject">{record.subject || '(no subject)'}</div>
-              <div className="muted">
-                {record.sender} &middot; {fmtDate(record.received_at) || fmtDate(record.created_at)}
-              </div>
-            </div>
-            <div>
-              {badge('category', record.category, CATEGORY_LABELS[record.category] || record.category)}
-              {badge('status', record.status, STATUS_LABELS[record.status] || record.status)}
-            </div>
-          </div>
-
-          <ExtractedFields extracted={record.extracted_json} />
-
-          {record.rationale && (
-            <details className="why">
-              <summary>Why?</summary>
-              <div>{record.rationale}</div>
-            </details>
-          )}
-
-          {record.draft_body && (
-            <div className="draft">
-              <div className="draft-subject">{record.draft_subject}</div>
-              <div className="draft-body">{record.draft_body}</div>
-              {record.gmail_draft_id && (
-                <div className="muted">
-                  Also saved as a Gmail draft (id: {record.gmail_draft_id}) &mdash; edit it there
-                  directly if you want to change the wording before it sends.
-                </div>
-              )}
-            </div>
-          )}
-
-          {record.status === 'drafted' && <TriageActions id={record.id} />}
-        </div>
-      ))}
+      <div className="row-list">
+        {records.map((record) => (
+          <RecordRow
+            key={record.id}
+            id={record.id}
+            subject={record.subject}
+            sender={record.sender}
+            dateDisplay={fmtDate(record.received_at) || fmtDate(record.created_at)}
+            category={record.category}
+            status={record.status}
+            extracted={record.extracted_json}
+            summary={record.extracted_json?.summary}
+            rationale={record.rationale}
+            draftSubject={record.draft_subject}
+            draftBody={record.draft_body}
+            gmailDraftId={record.gmail_draft_id}
+          />
+        ))}
+      </div>
     </div>
   )
 }
