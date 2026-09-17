@@ -23,17 +23,26 @@ const SORT_OPTIONS = {
   fit_asc: 'fit_score ASC NULLS LAST, created_at DESC',
 }
 
-async function getRecords({ category, showIgnored, pendingOnly, sort }) {
+// Cross-category status views - status='sent'/'approved_pending' rows are
+// excluded from the default category tabs (below) and only live here,
+// same treatment 'ignored' already got via the showIgnored toggle.
+const STATUS_VIEWS = {
+  pending: 'approved_pending',
+  sent: 'sent',
+}
+
+async function getRecords({ category, showIgnored, view, sort }) {
   const orderBy = SORT_OPTIONS[sort] || SORT_OPTIONS.newest
 
-  if (pendingOnly) {
+  if (STATUS_VIEWS[view]) {
     const { rows } = await query(
-      `SELECT * FROM triage_records WHERE status = 'approved_pending' ORDER BY ${orderBy}`
+      `SELECT * FROM triage_records WHERE status = $1 ORDER BY ${orderBy}`,
+      [STATUS_VIEWS[view]]
     )
     return rows
   }
 
-  const conditions = []
+  const conditions = ["status <> 'sent'"]
   const params = []
 
   if (category) {
@@ -44,22 +53,21 @@ async function getRecords({ category, showIgnored, pendingOnly, sort }) {
     conditions.push(`status <> 'ignored'`)
   }
 
-  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
   const { rows } = await query(
-    `SELECT * FROM triage_records ${where} ORDER BY ${orderBy}`,
+    `SELECT * FROM triage_records WHERE ${conditions.join(' AND ')} ORDER BY ${orderBy}`,
     params
   )
   return rows
 }
 
 // Single source of truth for building nav links so every control (category
-// tabs, pending view, ignored toggle, sort) can change one dimension of the
+// tabs, status views, ignored toggle, sort) can change one dimension of the
 // URL while preserving the others.
 function buildHref(current, overrides) {
   const merged = { ...current, ...overrides }
   const params = new URLSearchParams()
-  if (merged.pendingOnly) params.set('view', 'pending')
-  if (!merged.pendingOnly && merged.category) params.set('category', merged.category)
+  if (merged.view) params.set('view', merged.view)
+  if (!merged.view && merged.category) params.set('category', merged.category)
   if (merged.showIgnored) params.set('showIgnored', '1')
   if (merged.sort && merged.sort !== 'newest') params.set('sort', merged.sort)
   const qs = params.toString()
@@ -68,17 +76,17 @@ function buildHref(current, overrides) {
 
 export default async function DashboardPage({ searchParams }) {
   const sp = (await searchParams) || {}
-  const pendingOnly = sp.view === 'pending'
+  const view = STATUS_VIEWS[sp.view] ? sp.view : null
   const category = ['ignore', 'keep_warm', 'high_interest'].includes(sp.category)
     ? sp.category
     : null
   const showIgnored = sp.showIgnored === '1'
   const sort = SORT_OPTIONS[sp.sort] ? sp.sort : 'newest'
-  const current = { category, showIgnored, pendingOnly, sort }
+  const current = { category, showIgnored, view, sort }
 
   const [runState, records] = await Promise.all([
     getRunState(),
-    getRecords({ category, showIgnored, pendingOnly, sort }),
+    getRecords({ category, showIgnored, view, sort }),
   ])
 
   return (
@@ -104,37 +112,40 @@ export default async function DashboardPage({ searchParams }) {
       <div className="tabs-row">
         <div className="tabs">
           <Link
-            className={!pendingOnly && !category ? 'active' : ''}
-            href={buildHref(current, { category: null, pendingOnly: false })}
+            className={!view && !category ? 'active' : ''}
+            href={buildHref(current, { category: null, view: null })}
           >
             All
           </Link>
           <Link
-            className={!pendingOnly && category === 'keep_warm' ? 'active' : ''}
-            href={buildHref(current, { category: 'keep_warm', pendingOnly: false })}
+            className={!view && category === 'keep_warm' ? 'active' : ''}
+            href={buildHref(current, { category: 'keep_warm', view: null })}
           >
             Keep Warm
           </Link>
           <Link
-            className={!pendingOnly && category === 'high_interest' ? 'active' : ''}
-            href={buildHref(current, { category: 'high_interest', pendingOnly: false })}
+            className={!view && category === 'high_interest' ? 'active' : ''}
+            href={buildHref(current, { category: 'high_interest', view: null })}
           >
             High Interest
           </Link>
           <Link
-            className={!pendingOnly && category === 'ignore' ? 'active' : ''}
-            href={buildHref(current, { category: 'ignore', pendingOnly: false })}
+            className={!view && category === 'ignore' ? 'active' : ''}
+            href={buildHref(current, { category: 'ignore', view: null })}
           >
             Ignore (category)
           </Link>
           <Link
-            className={pendingOnly ? 'active' : ''}
-            href={buildHref(current, { pendingOnly: true })}
+            className={view === 'pending' ? 'active' : ''}
+            href={buildHref(current, { view: 'pending' })}
           >
             Pending Send
           </Link>
+          <Link className={view === 'sent' ? 'active' : ''} href={buildHref(current, { view: 'sent' })}>
+            Sent
+          </Link>
         </div>
-        {!pendingOnly && (
+        {!view && (
           <Link className="toggle-link" href={buildHref(current, { showIgnored: !showIgnored })}>
             {showIgnored ? 'Hide ignored status' : 'Show ignored status'}
           </Link>

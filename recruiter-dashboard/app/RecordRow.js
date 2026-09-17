@@ -230,17 +230,11 @@ export default function RecordRow({
           <ExtractedFields extracted={extracted} />
           {summary && <div className="draft-text">{summary}</div>}
 
-          {rationale && (
-            <div className="why">
-              <span className="why-label">Why</span> {rationale}
-            </div>
-          )}
-
           {draftBody && (
             <div className="draft">
               <div className="draft-subject">{draftSubject}</div>
               <div className="draft-body">{draftBody}</div>
-              {gmailDraftId && (
+              {gmailDraftId && status !== 'sent' && (
                 <div className="muted">
                   Also saved as a Gmail draft &mdash; edit it there directly if you want to
                   change the wording before it sends.
