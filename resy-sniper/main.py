@@ -69,10 +69,17 @@ def try_book(watch, day, slot, payment_method_id):
         return None
 
     result = resy_api.book(book_token, payment_method_id)
-    reservation_id = result.get("resy_token") or result.get("reservation_id")
+    # reservation_id (a stable small int) is what /3/cancel needs to look up
+    # later - resy_token also appears here but rotates on every fetch of
+    # /3/user/reservations, so it's useless to persist (confirmed live:
+    # the token captured at book time no longer matched the one the
+    # reservations list returned minutes later).
+    reservation_id = result.get("reservation_id") or result.get("resy_token")
 
     try:
-        github_sync.record_booking(watch.key, day, resy_api.slot_time(slot), reservation_id)
+        github_sync.record_booking(
+            watch.key, day, resy_api.slot_time(slot), criteria.party_size, reservation_id
+        )
     except Exception:
         logger.exception(
             "[%s] booked but failed to record it in targets.json - the reservation itself "
@@ -105,8 +112,6 @@ def build_watches():
             continue
 
         criteria = request_parser.parse(target.request)
-        if target.party_size_override:
-            criteria.party_size = target.party_size_override
         logger.info("[%s] watching: %s", target.key, criteria)
 
         venue_id = target.venue_id or resy_api.find_venue(target.venue_name)

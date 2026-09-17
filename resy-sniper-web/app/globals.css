@@ -270,3 +270,59 @@ button:disabled {
   color: var(--text-muted);
   margin-top: -4px;
 }
+
+.card-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.card-actions-left {
+  display: flex;
+  gap: 10px;
+}
+
+.validation-panel {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 6px;
+  margin-bottom: 4px;
+}
+
+.validation-line {
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+}
+
+.validation-line:last-child {
+  margin-bottom: 0;
+}
+
+.validation-line.success {
+  color: var(--success);
+}
+
+.validation-line.error {
+  color: var(--danger);
+}
+
+.cancellation-terms {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  white-space: pre-line;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.cancellation-fee-warning {
+  color: var(--danger);
+  font-weight: 600;
+  margin-top: 6px;
+}

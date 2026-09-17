@@ -43,7 +43,7 @@ def _fetch():
     return json.loads(content), data["sha"]
 
 
-def record_booking(key, day, time, reservation_id, max_retries=2):
+def record_booking(key, day, time, party_size, reservation_id, max_retries=2):
     """Set the `booking` field on the target with this key in the GitHub-
     hosted targets.json. Retries once on a stale-sha conflict (another
     write landed between our fetch and our commit).
@@ -55,7 +55,12 @@ def record_booking(key, day, time, reservation_id, max_retries=2):
         if match is None:
             logger.warning("record_booking: key %r not found in targets.json, skipping", key)
             return
-        match["booking"] = {"day": day, "time": time, "reservation_id": reservation_id}
+        match["booking"] = {
+            "day": day,
+            "time": time,
+            "party_size": party_size,
+            "reservation_id": reservation_id,
+        }
 
         body = json.dumps(targets, indent=2) + "\n"
         content = base64.b64encode(body.encode("utf-8")).decode("utf-8")

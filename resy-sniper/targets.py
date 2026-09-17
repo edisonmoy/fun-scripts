@@ -25,7 +25,6 @@ class Target:
     venue_name: str
     request: str  # free-text description, parsed by request_parser.parse()
     venue_id: Optional[int] = None  # pin once resolved; skips a search call every restart
-    party_size_override: Optional[int] = None  # wins over whatever the LLM parses
     enabled: bool = True
     dry_run: Optional[bool] = None  # None = fall back to the global RESY_DRY_RUN
     booking: Optional[dict] = None  # set by github_sync.record_booking() once booked

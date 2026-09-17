@@ -22,7 +22,6 @@ def test_load_applies_defaults(tmp_path):
     t = loaded[0]
     assert t.key == "a"
     assert t.venue_id is None
-    assert t.party_size_override is None
     assert t.enabled is True
     assert t.dry_run is None
     assert t.booking is None
@@ -35,7 +34,6 @@ def test_load_respects_explicit_fields(tmp_path):
             "venue_name": "Pizza 4P's Brooklyn",
             "venue_id": 98384,
             "request": "Saturday dinner for 2",
-            "party_size_override": 4,
             "enabled": False,
             "dry_run": True,
         }
@@ -44,7 +42,6 @@ def test_load_respects_explicit_fields(tmp_path):
     loaded = targets.load(path)
 
     assert loaded[0].venue_id == 98384
-    assert loaded[0].party_size_override == 4
     assert loaded[0].enabled is False
     assert loaded[0].dry_run is True
 

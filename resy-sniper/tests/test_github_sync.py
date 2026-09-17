@@ -35,14 +35,14 @@ def test_record_booking_sets_field_and_commits(monkeypatch):
 
     with patch("github_sync.requests.get", return_value=get_resp) as mock_get, \
          patch("github_sync.requests.put", return_value=put_resp) as mock_put:
-        github_sync.record_booking("a", "2026-09-19", "17:00", "resy-token-1")
+        github_sync.record_booking("a", "2026-09-19", "17:00", 2, "resy-token-1")
 
     mock_get.assert_called_once()
     put_kwargs = mock_put.call_args.kwargs
     assert put_kwargs["json"]["sha"] == "sha1"
     committed = json.loads(base64.b64decode(put_kwargs["json"]["content"]))
     assert committed[0]["booking"] == {
-        "day": "2026-09-19", "time": "17:00", "reservation_id": "resy-token-1"
+        "day": "2026-09-19", "time": "17:00", "party_size": 2, "reservation_id": "resy-token-1"
     }
 
 
@@ -55,7 +55,7 @@ def test_record_booking_skips_unknown_key(monkeypatch):
 
     with patch("github_sync.requests.get", return_value=get_resp), \
          patch("github_sync.requests.put") as mock_put:
-        github_sync.record_booking("nonexistent", "2026-09-19", "17:00", "resy-token-1")
+        github_sync.record_booking("nonexistent", "2026-09-19", "17:00", 2, "resy-token-1")
 
     mock_put.assert_not_called()
 
@@ -76,7 +76,7 @@ def test_record_booking_retries_on_conflict(monkeypatch):
 
     with patch("github_sync.requests.get", side_effect=[get_resp_1, get_resp_2]), \
          patch("github_sync.requests.put", side_effect=[conflict_resp, success_resp]) as mock_put:
-        github_sync.record_booking("a", "2026-09-19", "17:00", "resy-token-1")
+        github_sync.record_booking("a", "2026-09-19", "17:00", 2, "resy-token-1")
 
     assert mock_put.call_count == 2
     assert mock_put.call_args_list[1].kwargs["json"]["sha"] == "sha2"
