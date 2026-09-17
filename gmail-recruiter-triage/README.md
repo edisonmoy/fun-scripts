@@ -110,8 +110,9 @@ WHERE id = 1;
 Other tunables live in `config.py`:
 
 - `ANTHROPIC_MODEL` - overridable via the `ANTHROPIC_MODEL` env var
-- `MIN_DRAFT_LENGTH` / `PLACEHOLDER_MARKERS` - the quality gate's
-  thresholds
+- `MIN_DRAFT_LENGTH` / `PLACEHOLDER_MARKERS` / `FORBIDDEN_CHARACTERS` - the
+  quality gate's thresholds (the last of these blocks exclamation points and
+  em/en dashes, which are also prompted against in `draft_writer.py`)
 - `CATEGORY_LABELS` - Gmail label names per category
 - `GMAIL_SEARCH_QUERY` - the keyword heuristic used to shortlist candidate
   threads

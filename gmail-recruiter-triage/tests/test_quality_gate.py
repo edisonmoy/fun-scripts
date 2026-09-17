@@ -28,7 +28,7 @@ def test_short_body_fails():
 def test_placeholder_marker_fails():
     body = (
         "Hi [INSERT NAME], thanks so much for reaching out about the exciting "
-        "opportunity at your company - really appreciate you thinking of me!"
+        "opportunity at your company - really appreciate you thinking of me."
     )
     passed, reason = quality_gate.evaluate(body)
     assert not passed
@@ -37,7 +37,7 @@ def test_placeholder_marker_fails():
 
 def test_placeholder_marker_is_case_insensitive():
     body = (
-        "hi there, thanks for reaching out! todo: figure out what to actually say "
+        "hi there, thanks for reaching out. todo: figure out what to actually say "
         "here before sending this reply back to them, but not right now anyway."
     )
     passed, reason = quality_gate.evaluate(body)
@@ -45,11 +45,31 @@ def test_placeholder_marker_is_case_insensitive():
     assert "placeholder" in reason
 
 
+def test_exclamation_point_fails():
+    body = (
+        "Hi Jane, thanks so much for reaching out about the Staff ML Engineer role "
+        "at Acme Health! Happy to reconnect if things change in the future."
+    )
+    passed, reason = quality_gate.evaluate(body)
+    assert not passed
+    assert "forbidden character" in reason
+
+
+def test_em_dash_fails():
+    body = (
+        "Hi Jane, thanks so much for reaching out about the Staff ML Engineer role "
+        "at Acme Health — happy to reconnect if things change in the future."
+    )
+    passed, reason = quality_gate.evaluate(body)
+    assert not passed
+    assert "forbidden character" in reason
+
+
 def test_valid_body_passes():
     body = (
         "Hi Jane, thanks so much for reaching out about the Staff ML Engineer role "
-        "at Acme Health. It's not the right time for me to make a move, but I'd love "
-        "to stay in touch - please keep me in mind for anything similar down the line!"
+        "at Acme Health. Sounds like an interesting team you're building there. "
+        "Happy to reconnect if things change in the future."
     )
     passed, reason = quality_gate.evaluate(body)
     assert passed

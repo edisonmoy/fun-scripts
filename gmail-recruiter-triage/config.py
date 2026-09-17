@@ -21,6 +21,11 @@ PLACEHOLDER_MARKERS = [
     "<role>",
 ]
 
+# Punctuation Edison never wants in a drafted reply. Prompted against in
+# draft_writer.py too, but enforced here as a deterministic backstop since
+# prompt instructions alone aren't guaranteed.
+FORBIDDEN_CHARACTERS = ["!", "—", "–"]  # exclamation point, em dash, en dash
+
 # Gmail label applied per triage category.
 CATEGORY_LABELS = {
     "keep_warm": "Recruiter/KeepWarm",

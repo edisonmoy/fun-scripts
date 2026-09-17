@@ -26,9 +26,15 @@ def _style_instructions(category):
             "the conversation has somewhere concrete to go next."
         )
     return (
-        "Write a short, warm, low-commitment reply: thank them for reaching out, say "
-        "that now isn't the right time for a move, and ask them to keep Edison in mind "
-        "for the future. Keep it brief - this is not the email to get into details."
+        "Write a very short reply, exactly three parts and nothing else: "
+        "(1) thank them for reaching out, "
+        "(2) one sentence commenting on something specific they actually said in "
+        "their email (the company, the role, a detail they mentioned - not a "
+        "generic compliment), "
+        "(3) close with a line like 'Happy to reconnect if things change in the "
+        "future.' "
+        "Do not say now isn't the right time, do not explain why, do not add "
+        "anything beyond those three parts."
     )
 
 
@@ -43,6 +49,8 @@ def _build_prompt(classification, thread, preferences):
         "entire purpose of replying at all. Never use placeholder text like [Company], "
         "<role>, or similar under any circumstances - use the real details from the "
         "email, or omit the detail entirely if it truly isn't mentioned.\n\n"
+        "Never use an exclamation point anywhere in the reply. Never use an em "
+        "dash or en dash - use a period or comma instead.\n\n"
         f"Extracted company: {classification.get('company')}\n"
         f"Extracted role: {classification.get('role')}\n"
         f"Extracted summary: {classification.get('summary')}\n\n"
