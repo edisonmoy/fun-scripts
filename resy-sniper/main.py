@@ -4,9 +4,9 @@ import time
 
 import alerts
 import config
+import github_sync
 import request_parser
 import resy_api
-import state
 import targets as targets_module
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -69,8 +69,23 @@ def try_book(watch, day, slot, payment_method_id):
         return None
 
     result = resy_api.book(book_token, payment_method_id)
-    reservation_id = result.get("resy_token") or result.get("reservation_id")
-    state.mark_booked(watch.key, day, resy_api.slot_time(slot), reservation_id)
+    # reservation_id (a stable small int) is what /3/cancel needs to look up
+    # later - resy_token also appears here but rotates on every fetch of
+    # /3/user/reservations, so it's useless to persist (confirmed live:
+    # the token captured at book time no longer matched the one the
+    # reservations list returned minutes later).
+    reservation_id = result.get("reservation_id") or result.get("resy_token")
+
+    try:
+        github_sync.record_booking(
+            watch.key, day, resy_api.slot_time(slot), criteria.party_size, reservation_id
+        )
+    except Exception:
+        logger.exception(
+            "[%s] booked but failed to record it in targets.json - the reservation itself "
+            "is real, this only affects whether the webapp/next restart knows about it",
+            watch.key,
+        )
 
     alerts.send_email(
         subject=f"Booked! {watch.target.venue_name} - {day}",
@@ -92,15 +107,11 @@ def build_watches():
         if not target.enabled:
             logger.info("[%s] disabled, skipping", target.key)
             continue
-        if state.is_booked(target.key):
-            logger.info(
-                "[%s] already booked: %s - skipping", target.key, state.get_booking(target.key)
-            )
+        if target.booking:
+            logger.info("[%s] already booked: %s - skipping", target.key, target.booking)
             continue
 
         criteria = request_parser.parse(target.request)
-        if target.party_size_override:
-            criteria.party_size = target.party_size_override
         logger.info("[%s] watching: %s", target.key, criteria)
 
         venue_id = target.venue_id or resy_api.find_venue(target.venue_name)
@@ -110,13 +121,14 @@ def build_watches():
 
 def main():
     watches = build_watches()
-    if not watches:
-        logger.info("no active targets to watch (all booked/disabled, or targets.json is empty)")
-        return
 
-    payment_method_id = config.PAYMENT_METHOD_ID or resy_api.get_default_payment_method_id()
-    if payment_method_id is None:
-        logger.warning("no payment method on file - booking will only work for no-deposit venues")
+    payment_method_id = None
+    if watches:
+        payment_method_id = config.PAYMENT_METHOD_ID or resy_api.get_default_payment_method_id()
+        if payment_method_id is None:
+            logger.warning(
+                "no payment method on file - booking will only work for no-deposit venues"
+            )
 
     while watches:
         still_watching = []
@@ -137,10 +149,12 @@ def main():
         if watches:
             time.sleep(config.POLL_INTERVAL_SECONDS + random.uniform(0, config.POLL_JITTER_SECONDS))
 
-    # Every target that was active this run got booked. Idle instead of
-    # exiting so Fly's `restart = always` doesn't spin the machine back up
-    # into an instant-exit loop right after a successful sniping session.
-    logger.info("all active targets booked - idling")
+    # Nothing left to poll - either everything active this run got booked,
+    # or there was nothing to watch to begin with (all booked/disabled, or
+    # targets.json is empty). Idle instead of exiting so Fly's
+    # `restart = always` doesn't spin the machine into a restart-loop -
+    # exiting cleanly here previously caused exactly that.
+    logger.info("nothing to watch - idling")
     while True:
         time.sleep(3600)
 

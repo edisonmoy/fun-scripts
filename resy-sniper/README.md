@@ -28,9 +28,10 @@ use, authenticated with **your** logged-in session credentials.
   booked or disabled; others keep going.
 - `alerts.py` - sends a confirmation email over Gmail SMTP once a target
   books.
-- `state.py` - tracks booked/not-booked per target key in `state.json` so
-  a restart (crash, redeploy) doesn't double-book a target that already
-  succeeded, while other targets keep being watched.
+- `github_sync.py` - commits a `booking` field onto the target itself in
+  `targets.json` once it books. This is the single source of truth for
+  booked/not-booked (not local disk, which is wiped on every redeploy) and
+  is what lets [resy-sniper-web](../resy-sniper-web) display status.
 
 ## ⚠️ Read this before running it live
 
@@ -57,7 +58,14 @@ pattern that gets accounts flagged or rate-limited. Concretely:
 ## Managing targets
 
 `targets.json` is the list of reservations being watched - it's plain
-data (no secrets), checked into git. Each entry:
+data (no secrets), checked into git. The easiest way to manage it is the
+password-gated dashboard at [resy-sniper-web](../resy-sniper-web)
+(resy.edisonmoy.com) - add/edit/remove targets, validate that a venue name
+resolves correctly and a request parses the way you'd expect, and cancel
+a booked reservation, all from the browser. Saving there commits directly
+to this file and redeploys the bot the same way editing it by hand would.
+
+Each entry:
 
 ```json
 {
@@ -65,7 +73,6 @@ data (no secrets), checked into git. Each entry:
   "venue_name": "Pizza 4P's Brooklyn",
   "venue_id": 98384,
   "request": "A Saturday dinner reservation for 2, flexible on time between 5pm and 9pm. No date flexibility beyond Saturdays. Look up to 8 weeks out.",
-  "party_size_override": null,
   "enabled": true,
   "dry_run": null
 }
@@ -76,17 +83,17 @@ data (no secrets), checked into git. Each entry:
 | `key` | yes | Short unique slug - namespaces this target's state, shows up in logs/emails |
 | `venue_name` | yes | Search query used if `venue_id` isn't set |
 | `venue_id` | no | Pin the exact venue once you've verified the search resolved correctly |
-| `request` | yes | Free-text description - see "How requests are parsed" below |
-| `party_size_override` | no | Hard override if you don't trust the LLM's parsed party size |
+| `request` | yes | Free-text description, including party size - see "How requests are parsed" below |
 | `enabled` | no (default `true`) | Set `false` to pause without deleting the target |
 | `dry_run` | no (default: falls back to `RESY_DRY_RUN`) | Per-target override - e.g. test-run a new target while others stay live |
+| `booking` | no | Set automatically by `github_sync.py` once this target books - `{day, time, party_size, reservation_id}`. Never set this by hand. |
 
-**To add, pause, or remove a target:** edit `targets.json` and redeploy
-(`fly deploy`) - or just tell me (Claude) what you want watched and I'll
-do both. A target that's fully booked drops out of the poll loop
-automatically; the process keeps running (idle) for any others still
-active, and picks up newly-added or re-enabled targets on the next
-restart/redeploy.
+**To add, pause, or remove a target:** use the dashboard above, or edit
+`targets.json` directly and redeploy (`fly deploy`) - or just tell me
+(Claude) what you want watched and I'll do both. A target that's fully
+booked drops out of the poll loop automatically; the process keeps
+running (idle) for any others still active, and picks up newly-added or
+re-enabled targets on the next restart/redeploy.
 
 ## 1. Get your Resy credentials (you're here)
 
@@ -116,6 +123,7 @@ one.
 RESY_AUTH_TOKEN=paste-here
 RESY_API_KEY=paste-here
 RESY_PAYMENT_METHOD_ID=paste-here   # optional - see step 2b
+RESY_GITHUB_TOKEN=paste-here        # fine-grained PAT, Contents: read/write on this repo
 ANTHROPIC_API_KEY=paste-here
 ALERT_EMAIL_FROM=your-gmail@gmail.com
 ALERT_EMAIL_PASSWORD=your-gmail-app-password
@@ -135,6 +143,11 @@ target at startup to parse that target's `request` into structured search
 criteria (see "How requests are parsed" below) - small calls, well under
 a cent each.
 
+`RESY_GITHUB_TOKEN` can be the exact same token used by
+[resy-sniper-web](../resy-sniper-web)'s `GITHUB_TOKEN` - same repo, same
+Contents: read/write scope, used by `github_sync.py` to record a booking
+back into `targets.json`.
+
 ### How requests are parsed
 
 Rather than separate day/time-window fields, each target's `request` in
@@ -150,10 +163,11 @@ target at startup and gets back structured JSON (`party_size`,
 free-text `notes` field for anything it couldn't represent structurally -
 e.g. "anniversary" or a specific single date). **Check the logged `notes`
 field** the first time you add a new target - it's how you catch a
-misparse before the bot starts polling on the wrong criteria.
-`party_size_override` in the target definition remains available as a
-hard override if you don't trust the parse for party size specifically
-(the one field where a mistake is expensive).
+misparse before the bot starts polling on the wrong criteria. The
+dashboard's "Check venue & request" button runs this same parse (plus
+venue resolution) before you save, so you can catch a misparse - wrong
+party size especially, the one field where a mistake is expensive -
+without waiting for a restart.
 
 ## 2. Run it locally (dry run first)
 
@@ -200,6 +214,7 @@ fly secrets set \
   RESY_AUTH_TOKEN=... \
   RESY_API_KEY=... \
   RESY_PAYMENT_METHOD_ID=... \
+  RESY_GITHUB_TOKEN=... \
   ANTHROPIC_API_KEY=... \
   ALERT_EMAIL_FROM=... \
   ALERT_EMAIL_PASSWORD=... \
@@ -231,6 +246,7 @@ these env vars are global/shared settings:
 | `RESY_PAYMENT_METHOD_ID` | _(resolved at startup)_ | Card to book with, shared across all targets - see step 2b |
 | `RESY_POLL_INTERVAL_SECONDS` / `RESY_POLL_JITTER_SECONDS` | `2` / `0.5` | Poll cadence for one round over all active targets combined |
 | `RESY_AUTH_TOKEN` / `RESY_API_KEY` | _(required)_ | From DevTools, see above |
+| `RESY_GITHUB_TOKEN` | _(required)_ | Fine-grained PAT, Contents: read/write on this repo - records bookings back into `targets.json` |
 | `ANTHROPIC_API_KEY` | _(required)_ | For parsing each target's `request` - console.anthropic.com/settings/keys |
 | `ALERT_EMAIL_FROM` / `ALERT_EMAIL_PASSWORD` / `ALERT_EMAIL_TO` | _(required)_ | Gmail SMTP for confirmation emails |
 
@@ -244,3 +260,10 @@ these env vars are global/shared settings:
 - One payment method for every target - if you ever want different
   targets charged to different cards, `RESY_PAYMENT_METHOD_ID` would need
   to become a per-target field instead of a global setting.
+- `resy_token` (the string `/3/book` and `/3/user/reservations` both
+  return) rotates - the one captured at booking time no longer matched
+  what `/3/user/reservations` returned minutes later (confirmed live). The
+  stable identifier is `reservation_id` (a small int), which is what gets
+  stored in `booking` and what the cancel flow re-looks-up a fresh
+  `resy_token` from right before calling `/3/cancel` - never trust a
+  stored `resy_token`.

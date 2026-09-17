@@ -10,14 +10,23 @@ const REPO = "fun-scripts";
 const PATH = "resy-sniper/targets.json";
 const BRANCH = "master";
 
+export interface Booking {
+  day: string; // "YYYY-MM-DD"
+  time: string; // "HH:MM", 24h
+  party_size: number;
+  reservation_id: number;
+}
+
 export interface Target {
   key: string;
   venue_name: string;
   request: string;
   venue_id?: number | null;
-  party_size_override?: number | null;
   enabled?: boolean;
   dry_run?: boolean | null;
+  // Set by the bot (github_sync.py) once this target books, or cleared by
+  // /api/cancel-reservation - the webapp only ever writes it to null.
+  booking?: Booking | null;
 }
 
 function githubHeaders() {

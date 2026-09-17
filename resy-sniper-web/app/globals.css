@@ -8,6 +8,7 @@
   --accent-text: #ffffff;
   --danger: #b3261e;
   --success: #2e7d32;
+  --info: #1a5fb4;
   --radius: 10px;
 }
 
@@ -22,6 +23,7 @@
     --accent-text: #1a1005;
     --danger: #ff6b60;
     --success: #6fcf78;
+    --info: #7bb0f0;
   }
 }
 
@@ -166,17 +168,72 @@ button:disabled {
   cursor: default;
 }
 
-.toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 20px;
-  gap: 12px;
-}
-
-.toolbar-actions {
+.action-toolbar {
   display: flex;
   gap: 10px;
+  margin-bottom: 20px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-watching {
+  background: color-mix(in srgb, var(--info) 15%, transparent);
+  color: var(--info);
+}
+
+.badge-booked {
+  background: color-mix(in srgb, var(--success) 15%, transparent);
+  color: var(--success);
+}
+
+.badge-paused {
+  background: color-mix(in srgb, var(--text-muted) 18%, transparent);
+  color: var(--text-muted);
+}
+
+.section-heading {
+  font-size: 1rem;
+  color: var(--text-muted);
+  margin: 32px 0 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.card-booked {
+  opacity: 0.9;
+}
+
+.booked-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.booked-title strong {
+  font-size: 1.05rem;
+}
+
+.booked-key {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.booked-detail {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.booked-detail code {
+  font-size: 0.8rem;
+  word-break: break-all;
 }
 
 .status-message {
@@ -212,4 +269,60 @@ button:disabled {
   font-size: 0.8rem;
   color: var(--text-muted);
   margin-top: -4px;
+}
+
+.card-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.card-actions-left {
+  display: flex;
+  gap: 10px;
+}
+
+.validation-panel {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 6px;
+  margin-bottom: 4px;
+}
+
+.validation-line {
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+}
+
+.validation-line:last-child {
+  margin-bottom: 0;
+}
+
+.validation-line.success {
+  color: var(--success);
+}
+
+.validation-line.error {
+  color: var(--danger);
+}
+
+.cancellation-terms {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  white-space: pre-line;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.cancellation-fee-warning {
+  color: var(--danger);
+  font-weight: 600;
+  margin-top: 6px;
 }

@@ -2,9 +2,14 @@
 
 Each target is independent - its own venue, its own natural-language
 request (parsed into search criteria once at startup by request_parser),
-its own enabled/dry_run override, its own booked-state (state.py). To add,
-pause, or remove a target, edit targets.json and redeploy - no code
-changes needed for the common case.
+its own enabled/dry_run override. To add, pause, or remove a target, edit
+targets.json and redeploy - no code changes needed for the common case.
+
+Booking state (`booking`) lives in this same file rather than local disk,
+and github_sync.py is what writes it back once a target books - Fly's
+container disk is ephemeral, so anything local would be forgotten on the
+next redeploy, and the file already round-trips through the management
+webapp anyway.
 """
 import json
 import os
@@ -20,9 +25,9 @@ class Target:
     venue_name: str
     request: str  # free-text description, parsed by request_parser.parse()
     venue_id: Optional[int] = None  # pin once resolved; skips a search call every restart
-    party_size_override: Optional[int] = None  # wins over whatever the LLM parses
     enabled: bool = True
     dry_run: Optional[bool] = None  # None = fall back to the global RESY_DRY_RUN
+    booking: Optional[dict] = None  # set by github_sync.record_booking() once booked
 
 
 def load(path=None):
