@@ -73,20 +73,18 @@ h1 {
   margin-bottom: 14px;
 }
 
-.target-key-input {
+.target-key-display {
   font-weight: 600;
   font-size: 1.05rem;
-  background: transparent;
-  border: none;
-  border-bottom: 1px dashed transparent;
-  color: var(--text);
-  padding: 2px 0;
-  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-muted);
 }
 
-.target-key-input:focus {
-  outline: none;
-  border-bottom-color: var(--accent);
+.mode-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
 }
 
 .field-row {
@@ -163,9 +161,27 @@ button.danger {
   color: var(--danger);
 }
 
+button.ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-muted);
+}
+
+button.ghost:hover {
+  background: var(--bg);
+  border-color: var(--border);
+  color: var(--text);
+}
+
 button:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+.logout-button {
+  align-self: flex-start;
+  font-size: 0.82rem;
+  padding: 6px 12px;
 }
 
 .action-toolbar {

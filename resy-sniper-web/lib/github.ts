@@ -22,6 +22,11 @@ export interface Target {
   venue_name: string;
   request: string;
   venue_id?: number | null;
+  // Human-identifiable venue reference (name + address), set alongside
+  // venue_id by a successful "Check venue & request" - shown in the UI
+  // instead of the bare numeric id, and persisted so it survives reloads
+  // without re-validating.
+  venue_display?: string | null;
   enabled?: boolean;
   dry_run?: boolean | null;
   // Set by the bot (github_sync.py) once this target books, or cleared by

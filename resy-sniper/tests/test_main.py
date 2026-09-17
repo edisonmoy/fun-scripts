@@ -58,3 +58,49 @@ def test_find_target_slot_filters_by_time_window():
 
     assert found_day is None
     assert slot is None
+
+
+def _target(**overrides):
+    from targets import Target
+
+    defaults = dict(key="test-target", venue_name="Test Venue", request="test request")
+    defaults.update(overrides)
+    return Target(**defaults)
+
+
+def test_try_book_in_notify_mode_emails_and_stops_watching_without_booking():
+    target = _target(dry_run=True)
+    watch = main.Watch(target, _criteria(), venue_id=12345)
+    slot = {"config": {"token": "config-token"}, "date": {"start": "2026-09-19 19:00:00"}}
+
+    with patch("main.resy_api.get_book_token", return_value="book-token") as mock_get_token, \
+         patch("main.resy_api.book") as mock_book, \
+         patch("main.github_sync.record_booking") as mock_record, \
+         patch("main.alerts.send_email") as mock_email:
+        result = main.try_book(watch, "2026-09-19", slot, payment_method_id=None)
+
+    assert result is True
+    mock_get_token.assert_called_once()
+    mock_book.assert_not_called()
+    mock_record.assert_not_called()
+    mock_email.assert_called_once()
+    assert "notify mode" in mock_email.call_args.kwargs["subject"].lower()
+
+
+def test_try_book_in_book_mode_books_and_records():
+    target = _target(dry_run=False)
+    watch = main.Watch(target, _criteria(), venue_id=12345)
+    slot = {"config": {"token": "config-token"}, "date": {"start": "2026-09-19 19:00:00"}}
+    fake_result = {"reservation_id": 999}
+
+    with patch("main.resy_api.get_book_token", return_value="book-token"), \
+         patch("main.resy_api.book", return_value=fake_result) as mock_book, \
+         patch("main.github_sync.record_booking") as mock_record, \
+         patch("main.alerts.send_email") as mock_email:
+        result = main.try_book(watch, "2026-09-19", slot, payment_method_id=42)
+
+    assert result == 999
+    mock_book.assert_called_once_with("book-token", 42)
+    mock_record.assert_called_once_with("test-target", "2026-09-19", "19:00", 2, 999)
+    mock_email.assert_called_once()
+    assert "notify mode" not in mock_email.call_args.kwargs["subject"].lower()

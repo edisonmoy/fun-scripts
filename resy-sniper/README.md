@@ -85,7 +85,7 @@ Each entry:
 | `venue_id` | no | Pin the exact venue once you've verified the search resolved correctly |
 | `request` | yes | Free-text description, including party size - see "How requests are parsed" below |
 | `enabled` | no (default `true`) | Set `false` to pause without deleting the target |
-| `dry_run` | no (default: falls back to `RESY_DRY_RUN`) | Per-target override - e.g. test-run a new target while others stay live |
+| `dry_run` | no (default: falls back to `RESY_DRY_RUN`) | `true` = **notify mode** (email on a match, don't book), `false` = **book mode**. The dashboard shows these as a Notify/Book toggle. |
 | `booking` | no | Set automatically by `github_sync.py` once this target books - `{day, time, party_size, reservation_id}`. Never set this by hand. |
 
 **To add, pause, or remove a target:** use the dashboard above, or edit
@@ -177,7 +177,7 @@ pip install -r requirements-dev.txt
 pytest                       # unit tests, no network/credentials needed
 
 export $(cat .env | xargs)   # or use direnv/python-dotenv, your call
-python main.py                # RESY_DRY_RUN=true by default - logs only, never books
+python main.py                # RESY_DRY_RUN=true by default - notify mode, emails on a match, never books
 ```
 
 Watch the logs. You should see each target's parsed `request` criteria

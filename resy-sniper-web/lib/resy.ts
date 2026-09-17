@@ -30,7 +30,41 @@ export interface ResolvedVenue {
   id: number;
   name: string;
   neighborhood: string | null;
-  city: string | null;
+  address: string | null; // "38 Norman Ave, Brooklyn, NY 11222" - identifiable, not just an id
+}
+
+/** Full venue detail - needed for a street address, which venue search
+ * doesn't return. Live-verified against api.resy.com: search gives
+ * name/neighborhood/city only, `/3/venue?id=` adds address_1/locality/
+ * region/postal_code.
+ */
+async function getVenueDetail(id: number): Promise<{
+  name: string;
+  location?: {
+    address_1?: string;
+    locality?: string;
+    region?: string;
+    postal_code?: string;
+    neighborhood?: string;
+  };
+}> {
+  const resp = await fetch(`${BASE_URL}/3/venue?id=${id}`, { headers: resyHeaders() });
+  if (!resp.ok) {
+    throw new Error(`Resy venue detail failed (${resp.status}): ${await resp.text()}`);
+  }
+  return resp.json();
+}
+
+function formatAddress(loc?: {
+  address_1?: string;
+  locality?: string;
+  region?: string;
+  postal_code?: string;
+}): string | null {
+  if (!loc) return null;
+  const parts = [loc.address_1, loc.locality, loc.region].filter(Boolean);
+  if (parts.length === 0) return null;
+  return loc.postal_code ? `${parts.join(", ")} ${loc.postal_code}` : parts.join(", ");
 }
 
 export async function findVenue(name: string): Promise<ResolvedVenue> {
@@ -48,12 +82,66 @@ export async function findVenue(name: string): Promise<ResolvedVenue> {
     throw new Error(`No Resy venue found for "${name}"`);
   }
   const hit = hits[0];
+  const id = hit.id.resy;
+
+  const detail = await getVenueDetail(id);
   return {
-    id: hit.id.resy,
-    name: hit.name,
-    neighborhood: hit.neighborhood ?? null,
-    city: hit.location?.name ?? null,
+    id,
+    name: detail.name ?? hit.name,
+    neighborhood: detail.location?.neighborhood ?? hit.neighborhood ?? null,
+    address: formatAddress(detail.location),
   };
+}
+
+export interface ResySlot {
+  config: { token: string; type: string };
+  date: { start: string };
+}
+
+export async function findSlots(venueId: number, day: string, partySize: number): Promise<ResySlot[]> {
+  const params = new URLSearchParams({
+    lat: "0",
+    long: "0",
+    day,
+    party_size: String(partySize),
+    venue_id: String(venueId),
+  });
+  const resp = await fetch(`${BASE_URL}/4/find?${params}`, { headers: resyHeaders() });
+  if (resp.status === 404) return [];
+  if (!resp.ok) {
+    throw new Error(`Resy find_slots failed (${resp.status}): ${await resp.text()}`);
+  }
+  const data = await resp.json();
+  return data?.results?.venues?.[0]?.slots ?? [];
+}
+
+export function slotTime(slot: ResySlot): string {
+  return slot.date.start.split(" ")[1].slice(0, 5);
+}
+
+export interface SlotDetails {
+  book_token: { value: string };
+  cancellation?: {
+    display?: { policy?: string[] };
+    fee?: { amount: number; applies: boolean; display?: { amount: string } } | null;
+  };
+}
+
+/** Read-only preview of what booking a specific slot would involve
+ * (cancellation terms, deposit) - this is the same call the bot makes to
+ * get a book_token, just never followed by an actual /3/book.
+ */
+export async function getSlotDetails(
+  configId: string,
+  day: string,
+  partySize: number
+): Promise<SlotDetails> {
+  const params = new URLSearchParams({ config_id: configId, day, party_size: String(partySize) });
+  const resp = await fetch(`${BASE_URL}/3/details?${params}`, { headers: resyHeaders() });
+  if (!resp.ok) {
+    throw new Error(`Resy slot details failed (${resp.status}): ${await resp.text()}`);
+  }
+  return resp.json();
 }
 
 export interface CancellationFee {

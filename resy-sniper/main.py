@@ -61,12 +61,28 @@ def try_book(watch, day, slot, payment_method_id):
     book_token = resy_api.get_book_token(config_id, day, criteria.party_size)
 
     if watch.dry_run:
-        logger.warning(
-            "[%s][DRY RUN] would book %s %s party of %d (book_token=%s...) - "
-            "set dry_run=false to actually book",
-            watch.key, day, resy_api.slot_time(slot), criteria.party_size, book_token[:12],
+        logger.info(
+            "[%s] NOTIFY MODE: match found %s %s party of %d - sending alert, not booking",
+            watch.key, day, resy_api.slot_time(slot), criteria.party_size,
         )
-        return None
+        alerts.send_email(
+            subject=f"Match found (notify mode): {watch.target.venue_name} - {day}",
+            body=(
+                f"{watch.target.venue_name} ({watch.key}) has an opening for "
+                f"{criteria.party_size} on {day} at {resy_api.slot_time(slot)}.\n\n"
+                "This target is in notify mode, so nothing was booked - switch it to book "
+                "mode in the dashboard if you want the bot to grab slots like this "
+                "automatically.\n\nThis target stops watching now that it's found a match, "
+                "for the rest of this run - it resumes watching from scratch on the next "
+                "restart/redeploy."
+            ),
+        )
+        # Stop watching (like a real booking would) so the same open slot
+        # doesn't re-trigger an identical email every poll round. Nothing is
+        # persisted, so a redeploy resumes watching fresh - deliberate,
+        # since a notify-mode match isn't a terminal outcome the way a
+        # booking is.
+        return True
 
     result = resy_api.book(book_token, payment_method_id)
     # reservation_id (a stable small int) is what /3/cancel needs to look up

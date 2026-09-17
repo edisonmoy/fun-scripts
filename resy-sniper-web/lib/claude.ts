@@ -58,3 +58,35 @@ export async function parseRequest(requestText: string): Promise<BookingCriteria
   }
   return response.parsed_output;
 }
+
+// TS port of BookingCriteria.candidate_dates() / .in_time_window() from
+// request_parser.py - used to preview whether a slot is currently
+// available (and its cancellation terms) before saving a target.
+
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+/** ISO date strings for every matching weekday within the lookahead
+ * window, soonest first, capped at `limit` entries (the caller is
+ * probing Resy live per date - keep this bounded for latency).
+ */
+export function candidateDates(criteria: BookingCriteria, limit = 12): string[] {
+  const targets = new Set(criteria.days_of_week.map((d) => DAY_NAMES.indexOf(d)));
+  const horizonDays = criteria.lookahead_weeks * 7;
+  const dates: string[] = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  for (let offset = 0; offset < horizonDays && dates.length < limit; offset++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + offset);
+    // getDay(): Sun=0..Sat=6 - convert to Mon=0..Sun=6 to match DAY_NAMES
+    const weekday = (d.getDay() + 6) % 7;
+    if (targets.has(weekday)) dates.push(isoDate(d));
+  }
+  return dates;
+}
+
+export function inTimeWindow(criteria: BookingCriteria, hhmm: string): boolean {
+  return criteria.time_window_start <= hhmm && hhmm <= criteria.time_window_end;
+}
