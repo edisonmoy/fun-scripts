@@ -74,9 +74,17 @@ CLASSIFY_TOOL = {
             "summary": {
                 "type": "string",
                 "description": (
-                    "One-line summary of the opportunity. If you researched the "
-                    "company, ground this in what you actually learned (what they "
-                    "build, who they serve), not just what the email itself claims."
+                    "One-line description of what the COMPANY actually does or its "
+                    "mission - e.g. 'Runs AI-driven underwriting for small-business "
+                    "loans' or 'Builds remote patient monitoring for chronic-disease "
+                    "clinics'. This is shown right under the email subject line, so "
+                    "it must not restate or rephrase the subject/role pitch (e.g. "
+                    "don't just repeat 'building the AI operating layer for "
+                    "factories' back if that's already the subject) - say what the "
+                    "company itself does as a business, grounded in what you "
+                    "learned from web_search if you researched it, not the email's "
+                    "own framing of the role. Do not mention the role or job title "
+                    "here at all."
                 ),
             },
             "rationale": {
