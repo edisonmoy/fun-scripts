@@ -19,6 +19,7 @@ PLACEHOLDER_MARKERS = [
     "Lorem ipsum",
     "<company>",
     "<role>",
+    "<name>",
 ]
 
 # Punctuation Edison never wants in a drafted reply. Prompted against in

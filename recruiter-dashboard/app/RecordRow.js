@@ -143,6 +143,7 @@ export default function RecordRow({
   if (removed) return null
 
   const isQuickSend = category === 'keep_warm' && status === 'drafted'
+  const isPendingSend = status === 'approved_pending'
 
   return (
     <div
@@ -161,7 +162,9 @@ export default function RecordRow({
           <span className="row-sender">{sender}</span>
         </span>
         <span className="row-meta">
-          <span className="row-status">{STATUS_LABELS[status] || status}</span>
+          {status !== 'drafted' && (
+            <span className="row-status">{STATUS_LABELS[status] || status}</span>
+          )}
           <span className="row-date">{dateDisplay}</span>
           <span className={`toggle-arrow ${expanded ? 'toggle-arrow-open' : ''}`}>▾</span>
         </span>
@@ -191,7 +194,7 @@ export default function RecordRow({
               setExpanded((v) => !v)
             }}
           >
-            Other options
+            More
             <span className={`toggle-arrow ${expanded ? 'toggle-arrow-open' : ''}`}>▾</span>
           </button>
           {error && <span className="warning"> {error}</span>}
@@ -203,6 +206,20 @@ export default function RecordRow({
           <span className="muted">
             Queued to send, safe to leave this open or come back later.
           </span>
+        </div>
+      )}
+
+      {isPendingSend && (
+        <div className="row-quick-actions">
+          <button
+            type="button"
+            className="btn btn-danger btn-sm"
+            disabled={pending}
+            onClick={(e) => patch({ status: 'drafted' }, e)}
+          >
+            Cancel send
+          </button>
+          {error && <span className="warning"> {error}</span>}
         </div>
       )}
 

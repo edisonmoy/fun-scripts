@@ -65,12 +65,14 @@ CLASSIFY_TOOL = {
             "rationale": {
                 "type": "string",
                 "description": (
-                    "Why this fit_score/category was chosen, explicitly referencing "
-                    "the stated preferences (target_areas, seniority, comp_floor, "
-                    "etc). Do NOT state or explain whether this is recruiter "
-                    "outreach - that determination is already made via "
-                    "is_recruiter_outreach and is not useful to repeat here. Focus "
-                    "only on the fit assessment itself."
+                    "Why this fit_score/category was chosen, referencing the stated "
+                    "preferences (target_areas, seniority, comp_floor, etc). This is "
+                    "shown prominently in the dashboard, so keep it to ONE short "
+                    "sentence - roughly half the length you'd otherwise default to. "
+                    "State the single deciding factor only, not a full walkthrough "
+                    "of every preference field. Do NOT state or explain whether this "
+                    "is recruiter outreach - that determination is already made via "
+                    "is_recruiter_outreach and is not useful to repeat here."
                 ),
             },
         },

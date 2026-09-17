@@ -18,6 +18,7 @@ export default function PreferencesForm({ initial }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [savedAt, setSavedAt] = useState(null)
+  const [autonomyTab, setAutonomyTab] = useState('keep_warm')
 
   function update(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -91,58 +92,104 @@ export default function PreferencesForm({ initial }) {
         placeholder="Companies you never want to hear from, one per line"
       />
 
-      <label htmlFor="autonomy_keep_warm">Autonomy: keep-warm replies</label>
-      <select
-        id="autonomy_keep_warm"
-        value={form.autonomy_keep_warm}
-        onChange={(e) => update('autonomy_keep_warm', e.target.value)}
-      >
-        <option value="draft_only">Draft only (review before sending)</option>
-        <option value="auto_send">Auto-send</option>
-      </select>
-      {form.autonomy_keep_warm === 'auto_send' && (
-        <>
-          <div className="warning">Warning: auto_send sends these replies without your review.</div>
+      <label>Autonomy</label>
+      <div className="subtabs">
+        <button
+          type="button"
+          className={autonomyTab === 'keep_warm' ? 'active' : ''}
+          onClick={() => setAutonomyTab('keep_warm')}
+        >
+          Keep Warm
+        </button>
+        <button
+          type="button"
+          className={autonomyTab === 'high_interest' ? 'active' : ''}
+          onClick={() => setAutonomyTab('high_interest')}
+        >
+          High Interest
+        </button>
+      </div>
+
+      {autonomyTab === 'keep_warm' && (
+        <div className="autonomy-panel">
+          <div className="radio-group">
+            <label>
+              <input
+                type="radio"
+                name="autonomy_keep_warm"
+                checked={form.autonomy_keep_warm === 'draft_only'}
+                onChange={() => update('autonomy_keep_warm', 'draft_only')}
+              />
+              Draft only (review before sending)
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="autonomy_keep_warm"
+                checked={form.autonomy_keep_warm === 'auto_send'}
+                onChange={() => update('autonomy_keep_warm', 'auto_send')}
+              />
+              Auto-send
+            </label>
+          </div>
+          {form.autonomy_keep_warm === 'auto_send' && (
+            <div className="warning">Warning: auto_send sends these replies without your review.</div>
+          )}
           <label htmlFor="keep_warm_auto_send_max_fit">
-            Only auto-send if fit score is at most (optional)
+            Only auto-send if fit score is at most
           </label>
           <input
             id="keep_warm_auto_send_max_fit"
             type="number"
             min="0"
             max="100"
+            disabled={form.autonomy_keep_warm !== 'auto_send'}
             placeholder="e.g. 30 - leave blank to auto-send all keep-warm drafts"
             value={form.keep_warm_auto_send_max_fit}
             onChange={(e) => update('keep_warm_auto_send_max_fit', e.target.value)}
           />
-        </>
+        </div>
       )}
 
-      <label htmlFor="autonomy_high_interest">Autonomy: high-interest replies</label>
-      <select
-        id="autonomy_high_interest"
-        value={form.autonomy_high_interest}
-        onChange={(e) => update('autonomy_high_interest', e.target.value)}
-      >
-        <option value="draft_only">Draft only (review before sending)</option>
-        <option value="auto_send">Auto-send</option>
-      </select>
-      {form.autonomy_high_interest === 'auto_send' && (
-        <>
-          <div className="warning">Warning: auto_send sends these replies without your review.</div>
+      {autonomyTab === 'high_interest' && (
+        <div className="autonomy-panel">
+          <div className="radio-group">
+            <label>
+              <input
+                type="radio"
+                name="autonomy_high_interest"
+                checked={form.autonomy_high_interest === 'draft_only'}
+                onChange={() => update('autonomy_high_interest', 'draft_only')}
+              />
+              Draft only (review before sending)
+            </label>
+            <label>
+              <input
+                type="radio"
+                name="autonomy_high_interest"
+                checked={form.autonomy_high_interest === 'auto_send'}
+                onChange={() => update('autonomy_high_interest', 'auto_send')}
+              />
+              Auto-send
+            </label>
+          </div>
+          {form.autonomy_high_interest === 'auto_send' && (
+            <div className="warning">Warning: auto_send sends these replies without your review.</div>
+          )}
           <label htmlFor="high_interest_auto_send_min_fit">
-            Only auto-send if fit score is at least (optional)
+            Only auto-send if fit score is at least
           </label>
           <input
             id="high_interest_auto_send_min_fit"
             type="number"
             min="0"
             max="100"
+            disabled={form.autonomy_high_interest !== 'auto_send'}
             placeholder="e.g. 85 - leave blank to auto-send all high-interest drafts"
             value={form.high_interest_auto_send_min_fit}
             onChange={(e) => update('high_interest_auto_send_min_fit', e.target.value)}
           />
-        </>
+        </div>
       )}
 
       <label htmlFor="keep_warm_template">Keep-warm response template (optional)</label>

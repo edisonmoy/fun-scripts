@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server'
 import { query } from '../../../../lib/db'
 
-// This route intentionally only allows the two transitions the dashboard UI
-// can trigger. It must NOT accept arbitrary status values (e.g. 'sent' or
-// 'drafted') - those are set by the triage job itself.
-const ALLOWED_STATUSES = new Set(['approved_pending', 'rejected'])
+// This route intentionally only allows the transitions the dashboard UI can
+// trigger. It must NOT accept 'sent' - that's set by the triage job itself
+// once it actually sends the Gmail draft. 'drafted' is allowed so a
+// dashboard-approved (but not yet sent) row can be un-approved via
+// "Cancel send".
+const ALLOWED_STATUSES = new Set(['approved_pending', 'rejected', 'drafted'])
 
 // Lets the dashboard reclassify a record (e.g. "actually this looks more
 // serious than keep_warm") - a manual correction, independent of status.
