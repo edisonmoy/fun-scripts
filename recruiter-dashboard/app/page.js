@@ -25,9 +25,9 @@ async function getRunState() {
 async function getCounts() {
   const { rows } = await query(`
     SELECT
-      COUNT(*) FILTER (WHERE status NOT IN ('sent', 'ignored')) AS all_count,
-      COUNT(*) FILTER (WHERE category = 'keep_warm' AND status NOT IN ('sent', 'ignored')) AS keep_warm_count,
-      COUNT(*) FILTER (WHERE category = 'high_interest' AND status NOT IN ('sent', 'ignored')) AS high_interest_count,
+      COUNT(*) FILTER (WHERE status NOT IN ('sent', 'ignored', 'approved_pending')) AS all_count,
+      COUNT(*) FILTER (WHERE category = 'keep_warm' AND status NOT IN ('sent', 'ignored', 'approved_pending')) AS keep_warm_count,
+      COUNT(*) FILTER (WHERE category = 'high_interest' AND status NOT IN ('sent', 'ignored', 'approved_pending')) AS high_interest_count,
       COUNT(*) FILTER (WHERE status = 'approved_pending') AS pending_count,
       COUNT(*) FILTER (WHERE status = 'sent') AS sent_count,
       COUNT(*) FILTER (WHERE status = 'ignored') AS ignored_count
@@ -62,7 +62,10 @@ async function getRecords({ category, showIgnored, view, sort }) {
     return rows
   }
 
-  const conditions = ["status <> 'sent'"]
+  // Once a row is queued to send or has sent, it belongs only in the
+  // Pending Send / Sent status views (above) - not lingering in its
+  // category tab alongside still-awaiting-review drafts.
+  const conditions = ["status <> 'sent'", "status <> 'approved_pending'"]
   const params = []
 
   if (category) {
