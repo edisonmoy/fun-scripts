@@ -3,7 +3,7 @@ import os
 # Anthropic model used for both classification and draft generation.
 # Overridable so a run can pin/roll back a model version without a code
 # change.
-ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-opus-5")
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-5")
 
 # Quality gate: minimum non-whitespace characters a drafted reply body must
 # contain to be considered a real reply rather than a near-empty stub.
