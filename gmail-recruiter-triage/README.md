@@ -55,6 +55,10 @@ this repo, that reads/writes the same Postgres database via `schema.sql`).
      optional fit-score threshold) says to auto-send, `gmail_client.
      send_reply()` composes and sends the reply directly (`status="sent"`);
      otherwise it's left as `status="drafted"` for review in the dashboard.
+   - Every sent reply carries `In-Reply-To`/`References` pointing at the
+     thread's most recent message, and a subject matching that thread (see
+     "Reply threading" below), so the recruiter's response comes back in
+     the same conversation.
 4. Send the stored `draft_subject`/`draft_body` for every `triage_records`
    row the dashboard marked `approved_pending`, then mark it `sent`.
 5. Regenerate `draft_subject`/`draft_body` for any still-`drafted` row
@@ -70,6 +74,30 @@ Each candidate thread is processed inside its own `try/except` so one bad
 thread (a malformed email, a transient API error) doesn't fail the whole
 run - it's logged (by thread id and exception type only) and counted as an
 error.
+
+### Reply threading
+
+Gmail's `threadId` parameter only files a sent message into Edison's own
+copy of the thread. It does nothing for the recipient: the recruiter's
+mail client threads on the RFC 5322 `In-Reply-To`/`References` headers,
+so a reply sent without them shows up as a standalone message on their
+end, and their response starts a brand new Gmail thread rather than
+continuing the one the keep-warm reply was sent from.
+
+`gmail_client.send_reply()` therefore reads the thread's most recent
+message (`get_thread_reply_headers`) and sets:
+
+- `In-Reply-To` - that message's `Message-ID`.
+- `References` - that message's own `References` chain plus its
+  `Message-ID`, so the full ancestry is preserved as the thread grows.
+- `Subject` - the thread's subject (with a `Re:` prefix) whenever the
+  drafted subject has drifted from it. The drafted subject is model- or
+  template-generated, and Gmail silently drops a message out of the
+  thread when the subject doesn't match, as do clients that fall back to
+  subject-based threading.
+
+This applies to auto-sent replies and to dashboard-approved drafts sent
+on a later run alike - both go through `send_reply()`.
 
 ### Design decision: no sensitive content in logs or step summaries
 
@@ -151,7 +179,7 @@ Other tunables live in `config.py`:
 - `pytest -q` - unit tests (`tests/`), covering the classifier's forced
   tool-use response parsing, the quality gate's reject/pass cases, the DB
   client (mocked psycopg connection/cursor), and `main.py`'s
-  auto-send-vs-draft-only branching and approved-pending processing. All
+  auto-send-vs-draft-only branching and approved-pending processing, and `gmail_client.send_reply()`'s threading headers and subject handling. All
   mocked - no live network calls, no real database, no real Gmail/Anthropic
   API calls.
 
@@ -168,6 +196,11 @@ Both run automatically in CI on any push/PR touching this folder
 - The extracted `comp` field is LLM-inferred, best-effort parsing of
   whatever figure (if any) the email happened to mention - it is not
   guaranteed accurate and should be treated as a hint, not a fact.
+- A recruiter's response now lands back in the same thread (see "Reply
+  threading"), but `is_thread_processed()` dedupes on the thread id, so
+  that response is not re-triaged or re-drafted - it just arrives under
+  the thread's existing `triage_records` row. Follow-up conversation
+  after the keep-warm reply is handled by hand in Gmail.
 - This is a single-user personal tool: `preferences` and `run_state` are
   intentionally single-row tables (`id = 1`), not per-user.
 - The classifier makes one Anthropic API call per candidate thread (two if

@@ -1,5 +1,6 @@
 import base64
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
 from email.utils import parsedate_to_datetime
@@ -154,21 +155,99 @@ def apply_label(thread_id, label_id):
     ).execute()
 
 
+def _normalize_subject(subject):
+    """Strip any leading Re:/RE:/Re[2]: prefixes, for comparing a drafted
+    subject against the thread's own subject.
+    """
+    stripped = re.sub(
+        r"^\s*(re\s*(\[\d+\])?\s*:\s*)+", "", subject or "", flags=re.IGNORECASE
+    )
+    return stripped.strip()
+
+
+def get_thread_reply_headers(thread_id):
+    """Return the headers needed to make a reply thread correctly in the
+    RECIPIENT's mail client, not just in Edison's Gmail.
+
+    Gmail's `threadId` only files the sent message into Edison's own copy
+    of the thread. The recruiter's client (Outlook, Superhuman, another
+    Gmail account) threads on RFC 5322 `In-Reply-To`/`References` instead,
+    so without those headers the reply lands as a standalone message and
+    the recruiter's response comes back as a brand new thread. Gmail also
+    requires the sent message's subject to match the thread's, or it
+    silently breaks the thread on Edison's side too.
+
+    Returns {"message_id": str, "references": str, "subject": str} taken
+    from the thread's most recent message; empty strings when unavailable.
+    """
+    service = _get_service()
+    thread = (
+        service.users()
+        .threads()
+        .get(
+            userId="me",
+            id=thread_id,
+            format="metadata",
+            metadataHeaders=["Message-ID", "References", "Subject"],
+        )
+        .execute()
+    )
+    messages = thread.get("messages", [])
+    if not messages:
+        return {"message_id": "", "references": "", "subject": ""}
+
+    headers = {
+        h["name"].lower(): h["value"] for h in messages[-1].get("payload", {}).get("headers", [])
+    }
+    message_id = headers.get("message-id", "")
+    prior_references = headers.get("references", "")
+
+    # References is the full ancestry chain: everything the message we're
+    # replying to already referenced, plus that message itself.
+    references = " ".join(part for part in (prior_references, message_id) if part)
+
+    return {
+        "message_id": message_id,
+        "references": references,
+        "subject": headers.get("subject", ""),
+    }
+
+
 def send_reply(thread_id, to, subject, body):
     """Send a new message as a reply within `thread_id`. Returns the sent
     message's id.
+
+    The message carries `In-Reply-To`/`References` pointing at the thread's
+    most recent message, and a subject matching that thread, so the
+    recruiter's reply to it stays in the same conversation rather than
+    starting a fresh thread (see get_thread_reply_headers).
 
     Deliberately does not create a Gmail draft first - Edison reviews and
     approves drafts in the dashboard (backed by Postgres), not in Gmail's
     own Drafts folder, so there's no need to also clutter Gmail with a
     draft object before actually sending.
     """
+    service = _get_service()
+    reply_headers = get_thread_reply_headers(thread_id)
+
+    # The drafted subject is model- or template-generated, so it can drift
+    # from the thread's actual subject. Gmail needs them to match (modulo
+    # the Re: prefix) to keep the message in the thread, and so does every
+    # other client's subject-based threading fallback, so the thread's own
+    # subject wins whenever they differ.
+    thread_subject = reply_headers["subject"]
+    if thread_subject and _normalize_subject(subject) != _normalize_subject(thread_subject):
+        subject = f"Re: {_normalize_subject(thread_subject)}"
+
     message = MIMEText(body)
     message["to"] = to
     message["subject"] = subject
+    if reply_headers["message_id"]:
+        message["In-Reply-To"] = reply_headers["message_id"]
+    if reply_headers["references"]:
+        message["References"] = reply_headers["references"]
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
 
-    service = _get_service()
     sent = (
         service.users()
         .messages()
