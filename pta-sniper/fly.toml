@@ -1,0 +1,23 @@
+# fly.toml app configuration file for pta-sniper.
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+
+app = 'pta-sniper'
+primary_region = 'ewr'
+
+[build]
+[processes]
+  app = 'python main.py'
+
+# No [http_service] - background worker, nothing listens on any port. See
+# resy-sniper/fly.toml for why an http_service block here is actively
+# harmful (Fly health-checking a port nothing answers on).
+
+[[restart]]
+  policy = 'always'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  # Headless Chromium needs more headroom than resy-sniper's plain HTTP
+  # client - 256mb was tuned for that, this runs a real browser per check.
+  memory = '1gb'
