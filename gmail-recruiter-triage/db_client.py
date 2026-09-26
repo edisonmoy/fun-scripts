@@ -195,12 +195,30 @@ def update_draft_text(record_id, draft_subject, draft_body):
         )
 
 
-def mark_sent(record_id):
+def claim_for_send(record_id):
+    """Atomically flip an approved_pending row to 'sent' *before* sending it.
+    Returns True only for the one caller whose UPDATE matched - so if two
+    runs overlap (each dashboard "Send" dispatches its own run), only one of
+    them sends a given row. Also returns False if the row was un-approved
+    via "Cancel send" after this run fetched it.
+    """
     conn = get_connection()
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE triage_records SET status = 'sent', sent_at = now(), updated_at = now() "
-            "WHERE id = %s",
+            "WHERE id = %s AND status = 'approved_pending' RETURNING id",
+            (record_id,),
+        )
+        return cur.fetchone() is not None
+
+
+def release_send_claim(record_id):
+    """Undo claim_for_send after a failed send, so the next run retries it."""
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE triage_records SET status = 'approved_pending', sent_at = NULL, "
+            "updated_at = now() WHERE id = %s AND status = 'sent'",
             (record_id,),
         )
 

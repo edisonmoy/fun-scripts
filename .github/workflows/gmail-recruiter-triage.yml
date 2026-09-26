@@ -6,6 +6,14 @@ on:
     - cron: "0 13 * * *"
   workflow_dispatch: {}
 
+# Every dashboard "Send" dispatches a run, so several can be triggered back
+# to back. Overlapping runs would each triage (and possibly auto-send) the
+# same new threads, so queue them instead. A queued run processes everything
+# pending when it starts, so GitHub dropping an older queued run is harmless.
+concurrency:
+  group: gmail-recruiter-triage
+  cancel-in-progress: false
+
 # No write access needed - state lives in Postgres, nothing is committed
 # back to the repo.
 permissions: {}

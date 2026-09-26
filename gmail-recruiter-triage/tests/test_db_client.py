@@ -105,12 +105,26 @@ def test_get_approved_pending_returns_rows(monkeypatch):
     assert db_client.get_approved_pending() == rows
 
 
-def test_mark_sent_executes_update(monkeypatch):
-    _, cursor = _install_fake_connection(monkeypatch)
-    db_client.mark_sent(42)
+def test_claim_for_send_only_claims_approved_pending(monkeypatch):
+    _, cursor = _install_fake_connection(monkeypatch, fetchone_value={"id": 42})
+    assert db_client.claim_for_send(42) is True
     query, params = cursor.executed[-1]
-    assert "UPDATE triage_records" in query
-    assert "sent" in query
+    assert "SET status = 'sent'" in query
+    assert "status = 'approved_pending'" in query
+    assert params == (42,)
+
+
+def test_claim_for_send_returns_false_when_already_claimed(monkeypatch):
+    _install_fake_connection(monkeypatch, fetchone_value=None)
+    assert db_client.claim_for_send(42) is False
+
+
+def test_release_send_claim_reverts_to_approved_pending(monkeypatch):
+    _, cursor = _install_fake_connection(monkeypatch)
+    db_client.release_send_claim(42)
+    query, params = cursor.executed[-1]
+    assert "SET status = 'approved_pending'" in query
+    assert "sent_at = NULL" in query
     assert params == (42,)
 
 

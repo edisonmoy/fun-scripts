@@ -1,4 +1,5 @@
 import base64
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from email.mime.text import MIMEText
@@ -9,6 +10,8 @@ import google.oauth2.credentials
 from googleapiclient.discovery import build
 
 import config
+
+logger = logging.getLogger(__name__)
 
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 
@@ -178,9 +181,14 @@ def send_reply(thread_id, to, subject, body):
 
     # Edison has now replied - the thread shouldn't linger in the inbox as
     # unread just because the reply came from an API call instead of Gmail
-    # itself.
-    service.users().threads().modify(
-        userId="me", id=thread_id, body={"removeLabelIds": ["UNREAD"]}
-    ).execute()
+    # itself. Best-effort: the reply is already sent, so a failure here must
+    # not propagate - callers would treat it as a failed send and retry,
+    # sending the reply a second time.
+    try:
+        service.users().threads().modify(
+            userId="me", id=thread_id, body={"removeLabelIds": ["UNREAD"]}
+        ).execute()
+    except Exception:
+        logger.warning("thread_id=%s sent reply but failed to mark thread read", thread_id)
 
     return sent["id"]

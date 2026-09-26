@@ -242,15 +242,18 @@ def test_process_approved_pending_sends_and_marks_sent(monkeypatch):
     )
     send_mock = MagicMock()
     monkeypatch.setattr(main.gmail_client, "send_reply", send_mock)
-    mark_sent_mock = MagicMock()
-    monkeypatch.setattr(main.db_client, "mark_sent", mark_sent_mock)
+    claim_mock = MagicMock(return_value=True)
+    monkeypatch.setattr(main.db_client, "claim_for_send", claim_mock)
+    release_mock = MagicMock()
+    monkeypatch.setattr(main.db_client, "release_send_claim", release_mock)
 
     counts = _counts()
     main.process_approved_pending(counts)
 
     assert send_mock.call_count == 2
     send_mock.assert_any_call("t1", "jane@co.com", "Re: Role", "Thanks.")
-    assert mark_sent_mock.call_count == 2
+    assert claim_mock.call_count == 2
+    release_mock.assert_not_called()
     assert counts["approved_sent"] == 2
     assert counts["approved_failed"] == 0
 
@@ -272,15 +275,42 @@ def test_process_approved_pending_handles_send_failure(monkeypatch):
     monkeypatch.setattr(
         main.gmail_client, "send_reply", MagicMock(side_effect=Exception("boom"))
     )
-    mark_sent_mock = MagicMock()
-    monkeypatch.setattr(main.db_client, "mark_sent", mark_sent_mock)
+    monkeypatch.setattr(main.db_client, "claim_for_send", MagicMock(return_value=True))
+    release_mock = MagicMock()
+    monkeypatch.setattr(main.db_client, "release_send_claim", release_mock)
 
     counts = _counts()
     main.process_approved_pending(counts)
 
-    mark_sent_mock.assert_not_called()
+    release_mock.assert_called_once_with(1)
     assert counts["approved_failed"] == 1
     assert counts["approved_sent"] == 0
+
+
+def test_process_approved_pending_skips_row_claimed_by_another_run(monkeypatch):
+    monkeypatch.setattr(
+        main.db_client,
+        "get_approved_pending",
+        lambda: [
+            {
+                "id": 1,
+                "gmail_thread_id": "t1",
+                "sender": "jane@co.com",
+                "draft_subject": "Re: Role",
+                "draft_body": "Thanks.",
+            }
+        ],
+    )
+    send_mock = MagicMock()
+    monkeypatch.setattr(main.gmail_client, "send_reply", send_mock)
+    monkeypatch.setattr(main.db_client, "claim_for_send", MagicMock(return_value=False))
+
+    counts = _counts()
+    main.process_approved_pending(counts)
+
+    send_mock.assert_not_called()
+    assert counts["approved_sent"] == 0
+    assert counts["approved_failed"] == 0
 
 
 def test_backfill_template_drafts_skips_categories_without_template(monkeypatch):

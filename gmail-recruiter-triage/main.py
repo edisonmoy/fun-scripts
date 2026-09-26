@@ -215,15 +215,20 @@ def backfill_template_drafts(preferences, counts):
 def process_approved_pending(counts):
     """Send the stored draft text for every dashboard-approved record."""
     for record in db_client.get_approved_pending():
+        # Claim before sending, not mark-sent after: an overlapping run that
+        # fetched the same row loses the claim and skips it instead of
+        # sending a duplicate.
+        if not db_client.claim_for_send(record["id"]):
+            continue
         try:
             to_address = _extract_email_address(record["sender"])
             gmail_client.send_reply(
                 record["gmail_thread_id"], to_address, record["draft_subject"], record["draft_body"]
             )
-            db_client.mark_sent(record["id"])
             counts["approved_sent"] += 1
         except Exception:
             logger.exception("record_id=%s failed to send approved draft", record["id"])
+            db_client.release_send_claim(record["id"])
             counts["approved_failed"] += 1
 
 
