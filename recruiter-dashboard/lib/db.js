@@ -1,6 +1,6 @@
 // Postgres access for the recruiter dashboard: a single shared `pg` Pool,
-// plus a one-time-per-cold-start idempotent schema apply so this app never
-// depends on the gmail-recruiter-triage job having run first.
+// plus a one-time-per-cold-start idempotent schema apply so the app works
+// against a fresh database with no separate setup step.
 
 import { Pool } from 'pg'
 import fs from 'node:fs'

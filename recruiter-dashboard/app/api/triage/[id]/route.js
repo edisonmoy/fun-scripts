@@ -2,11 +2,9 @@ import { NextResponse } from 'next/server'
 import { query } from '../../../../lib/db'
 
 // This route intentionally only allows the transitions the dashboard UI can
-// trigger. It must NOT accept 'sent' - that's set by the triage job itself
-// once it actually sends the Gmail draft. 'drafted' is allowed so a
-// dashboard-approved (but not yet sent) row can be un-approved via
-// "Cancel send".
-const ALLOWED_STATUSES = new Set(['approved_pending', 'rejected', 'drafted'])
+// trigger. It must NOT accept 'sent' - only the send route sets that, and
+// only once the reply has actually gone out.
+const ALLOWED_STATUSES = new Set(['rejected', 'ignored'])
 
 // Lets the dashboard reclassify a record (e.g. "actually this looks more
 // serious than keep_warm") - a manual correction, independent of status.
@@ -53,14 +51,17 @@ export async function PATCH(request, context) {
     sets.push(`category = $${params.length}`)
   }
   params.push(id)
+  // A reply that already went out can't be rejected or ignored after the
+  // fact (e.g. a click racing an in-flight send).
+  const guard = status !== undefined ? " AND status <> 'sent'" : ''
 
   const { rows } = await query(
-    `UPDATE triage_records SET ${sets.join(', ')} WHERE id = $${params.length} RETURNING *`,
+    `UPDATE triage_records SET ${sets.join(', ')} WHERE id = $${params.length}${guard} RETURNING *`,
     params
   )
 
   if (rows.length === 0) {
-    return NextResponse.json({ error: 'not found' }, { status: 404 })
+    return NextResponse.json({ error: 'not found, or already sent' }, { status: 404 })
   }
 
   return NextResponse.json({ record: rows[0] })

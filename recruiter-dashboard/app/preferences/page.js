@@ -23,8 +23,8 @@ export default async function PreferencesPage() {
         </nav>
       </div>
       <p className="muted">
-        These preferences are read by the daily triage job to decide what counts as
-        high-interest, how to draft replies, and whether to send automatically.
+        Sync uses these to decide what counts as high-interest and how to draft replies.
+        Nothing is sent until you click Send.
       </p>
       <PreferencesForm initial={preferences} />
     </div>

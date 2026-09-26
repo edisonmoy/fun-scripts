@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { query } from '../lib/db'
 import LogoutButton from './LogoutButton'
 import RecordRow from './RecordRow'
-import RunControls from './RunControls'
+import SyncButton from './SyncButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,17 +18,16 @@ function fmtDate(value) {
 }
 
 async function getRunState() {
-  const { rows } = await query('SELECT last_run_at, active_run_id FROM run_state WHERE id = 1')
+  const { rows } = await query('SELECT last_run_at FROM run_state WHERE id = 1')
   return rows[0] || null
 }
 
 async function getCounts() {
   const { rows } = await query(`
     SELECT
-      COUNT(*) FILTER (WHERE status NOT IN ('sent', 'ignored', 'approved_pending')) AS all_count,
-      COUNT(*) FILTER (WHERE category = 'keep_warm' AND status NOT IN ('sent', 'ignored', 'approved_pending')) AS keep_warm_count,
-      COUNT(*) FILTER (WHERE category = 'high_interest' AND status NOT IN ('sent', 'ignored', 'approved_pending')) AS high_interest_count,
-      COUNT(*) FILTER (WHERE status = 'approved_pending') AS pending_count,
+      COUNT(*) FILTER (WHERE status NOT IN ('sent', 'ignored')) AS all_count,
+      COUNT(*) FILTER (WHERE category = 'keep_warm' AND status NOT IN ('sent', 'ignored')) AS keep_warm_count,
+      COUNT(*) FILTER (WHERE category = 'high_interest' AND status NOT IN ('sent', 'ignored')) AS high_interest_count,
       COUNT(*) FILTER (WHERE status = 'sent') AS sent_count,
       COUNT(*) FILTER (WHERE status = 'ignored') AS ignored_count
     FROM triage_records
@@ -43,11 +42,10 @@ const SORT_OPTIONS = {
   fit_asc: 'fit_score ASC NULLS LAST, created_at DESC',
 }
 
-// Cross-category status views - status='sent'/'approved_pending' rows are
-// excluded from the default category tabs (below) and only live here,
-// same treatment 'ignored' already got via the showIgnored toggle.
+// Cross-category status views - status='sent' rows are excluded from the
+// default category tabs (below) and only live here, same treatment
+// 'ignored' already got via the showIgnored toggle.
 const STATUS_VIEWS = {
-  pending: 'approved_pending',
   sent: 'sent',
 }
 
@@ -62,10 +60,9 @@ async function getRecords({ category, showIgnored, view, sort }) {
     return rows
   }
 
-  // Once a row is queued to send or has sent, it belongs only in the
-  // Pending Send / Sent status views (above) - not lingering in its
-  // category tab alongside still-awaiting-review drafts.
-  const conditions = ["status <> 'sent'", "status <> 'approved_pending'"]
+  // Once a row has sent, it belongs only in the Sent status view (above) -
+  // not lingering in its category tab alongside still-awaiting-review drafts.
+  const conditions = ["status <> 'sent'"]
   const params = []
 
   if (category) {
@@ -119,8 +116,7 @@ export default async function DashboardPage({ searchParams }) {
         <h1>Recruiter Triage</h1>
         <div>
           <span className="muted">
-            Last automation run:{' '}
-            {runState?.last_run_at ? fmtDate(runState.last_run_at) : 'never'}
+            Last synced: {runState?.last_run_at ? fmtDate(runState.last_run_at) : 'never'}
           </span>
           <nav>
             <Link href="/preferences">Preferences</Link>
@@ -130,7 +126,7 @@ export default async function DashboardPage({ searchParams }) {
       </div>
 
       <div className="run-section">
-        <RunControls initialRunId={runState?.active_run_id || null} />
+        <SyncButton />
       </div>
 
       <div className="tabs-row">
@@ -156,12 +152,6 @@ export default async function DashboardPage({ searchParams }) {
             })}
           >
             High Interest ({counts.high_interest_count})
-          </Link>
-          <Link
-            className={view === 'pending' ? 'active' : ''}
-            href={buildHref(current, { view: 'pending', category: null, showIgnored: false })}
-          >
-            Pending Send ({counts.pending_count})
           </Link>
           <Link
             className={view === 'sent' ? 'active' : ''}

@@ -189,56 +189,10 @@ a {
   margin-bottom: 20px;
 }
 
-.run-panel {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
-  padding: 14px 16px;
-  animation: fadeInUp var(--dur-base) var(--ease) both;
-}
-
-.run-panel-header {
-  display: flex;
+.run-controls .btn {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-}
-
-.run-panel-title {
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.run-panel-header .muted {
-  margin-left: auto;
-}
-
-.run-steps {
-  list-style: none;
-  margin: 12px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
   gap: 6px;
-  animation: fadeInUp var(--dur-base) var(--ease) both;
-}
-
-.run-steps li {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-.run-note {
-  margin-top: 12px;
-  animation: fadeIn var(--dur-base) var(--ease) both;
-}
-
-.run-panel > .btn {
-  margin-top: 14px;
-  animation: fadeIn var(--dur-base) var(--ease) both;
 }
 
 .step-icon {
@@ -253,12 +207,6 @@ a {
   border-radius: 999px;
   transition: background var(--dur-base) var(--ease), color var(--dur-base) var(--ease);
 }
-
-.step-icon-success { background: var(--success-soft); color: var(--success); }
-.step-icon-failure { background: var(--danger-soft); color: var(--danger); }
-.step-icon-skipped { background: #eef0f3; color: #98a2b3; }
-.step-icon-pending { color: var(--border-strong); }
-.step-icon-active { color: var(--accent); font-size: 10px; }
 
 .spinner {
   border: 2px solid var(--border);
@@ -827,49 +775,13 @@ form.prefs input:disabled {
   color: #fff;
 }
 
-.autonomy-panel {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 20px 22px 24px;
+.template-panel {
   margin-top: 10px;
-  background: var(--bg);
   animation: fadeInUp var(--dur-base) var(--ease) both;
-}
-
-.autonomy-panel label[for] {
-  margin-top: 20px;
-}
-
-.autonomy-panel label[for]:first-of-type {
-  margin-top: 0;
-}
-
-.autonomy-panel .warning {
-  margin-bottom: 6px;
 }
 
 .template-input {
   min-height: 160px;
-}
-
-.radio-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-form.prefs .radio-group label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 500;
-  font-size: 13.5px;
-  margin: 0;
-}
-
-.radio-group input[type='radio'] {
-  width: auto;
-  margin: 0;
 }
 
 .warning {

@@ -3,3 +3,5 @@ node_modules/
 .env*.local
 .vercel
 .env*
+# OAuth client secret used by scripts/authorize_gmail.py
+client_secret.json

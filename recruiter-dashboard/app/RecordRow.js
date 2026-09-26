@@ -11,7 +11,6 @@ const CATEGORY_LABELS = {
 
 const STATUS_LABELS = {
   drafted: 'Drafted',
-  approved_pending: 'Approved · pending send',
   sent: 'Sent',
   ignored: 'Ignored',
   rejected: 'Rejected',
@@ -81,7 +80,7 @@ export default function RecordRow({
   const [expanded, setExpanded] = useState(false)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState(null)
-  const [sendState, setSendState] = useState('idle') // idle | sending | queued
+  const [sending, setSending] = useState(false)
   const [leaving, setLeaving] = useState(false)
   const [removed, setRemoved] = useState(false)
   const router = useRouter()
@@ -119,35 +118,24 @@ export default function RecordRow({
     }, 240)
   }
 
-  // Optimistic: animate away immediately since this almost always succeeds.
-  // The network calls happen in the background; a real failure rolls the
-  // row back into view and surfaces the error instead of silently losing it.
-  function handleSend(e) {
+  // Sends immediately (not optimistic - whether Gmail accepted it matters),
+  // then animates the row away. A failure leaves the row in place with the
+  // error so it can be retried.
+  async function handleSend(e) {
     e.stopPropagation()
-    setSendState('queued')
+    setSending(true)
     setError(null)
-    animateAway()
-    ;(async () => {
-      try {
-        const patchRes = await fetch(`/api/triage/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: 'approved_pending' }),
-        })
-        if (!patchRes.ok) {
-          const respBody = await patchRes.json().catch(() => ({}))
-          throw new Error(respBody.error || `request failed (${patchRes.status})`)
-        }
-        // Trigger the automation right away rather than waiting for the next
-        // scheduled run - this is what makes "Send" actually send promptly.
-        await fetch('/api/run-now', { method: 'POST' })
-      } catch (err) {
-        setLeaving(false)
-        setRemoved(false)
-        setSendState('idle')
-        setError(err.message)
+    try {
+      const res = await fetch(`/api/triage/${id}/send`, { method: 'POST' })
+      if (!res.ok) {
+        const respBody = await res.json().catch(() => ({}))
+        throw new Error(respBody.error || `request failed (${res.status})`)
       }
-    })()
+      animateAway()
+    } catch (err) {
+      setError(err.message)
+      setSending(false)
+    }
   }
 
   async function handleIgnore(e) {
@@ -174,7 +162,6 @@ export default function RecordRow({
   if (removed) return null
 
   const isQuickSend = category === 'keep_warm' && status === 'drafted'
-  const isPendingSend = status === 'approved_pending'
 
   return (
     <div
@@ -216,45 +203,23 @@ export default function RecordRow({
         </div>
       </div>
 
-      {isQuickSend && sendState !== 'queued' && (
+      {isQuickSend && (
         <div className="row-quick-actions">
           <button
             type="button"
             className="btn btn-primary btn-sm"
-            disabled={sendState === 'sending'}
+            disabled={sending}
             onClick={handleSend}
           >
-            {sendState === 'sending' ? 'Sending…' : 'Send'}
+            {sending ? 'Sending…' : 'Send'}
           </button>
           <button
             type="button"
             className="btn-ghost"
-            disabled={pending || sendState === 'sending'}
+            disabled={pending || sending}
             onClick={handleIgnore}
           >
             Ignore
-          </button>
-          {error && <span className="warning"> {error}</span>}
-        </div>
-      )}
-
-      {isQuickSend && sendState === 'queued' && (
-        <div className="row-quick-actions">
-          <span className="muted">
-            Queued to send, safe to leave this open or come back later.
-          </span>
-        </div>
-      )}
-
-      {isPendingSend && (
-        <div className="row-quick-actions">
-          <button
-            type="button"
-            className="btn btn-danger btn-sm"
-            disabled={pending}
-            onClick={(e) => patch({ status: 'drafted' }, e)}
-          >
-            Cancel send
           </button>
           {error && <span className="warning"> {error}</span>}
         </div>
@@ -279,16 +244,12 @@ export default function RecordRow({
           {status === 'drafted' && (
             <div>
               <div className="actions">
-                <button
-                  className="btn btn-success"
-                  disabled={pending}
-                  onClick={(e) => patch({ status: 'approved_pending' }, e)}
-                >
-                  Approve
+                <button className="btn btn-success" disabled={pending || sending} onClick={handleSend}>
+                  {sending ? 'Sending…' : 'Send'}
                 </button>
                 <button
                   className="btn btn-danger"
-                  disabled={pending}
+                  disabled={pending || sending}
                   onClick={(e) => patch({ status: 'rejected' }, e)}
                 >
                   Reject
@@ -296,7 +257,7 @@ export default function RecordRow({
                 {category === 'keep_warm' && (
                   <button
                     className="btn"
-                    disabled={pending}
+                    disabled={pending || sending}
                     onClick={(e) => patch({ category: 'high_interest' }, e)}
                   >
                     Mark as high interest
