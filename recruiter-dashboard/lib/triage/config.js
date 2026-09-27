@@ -1,6 +1,14 @@
-// Anthropic model used for both classification and draft generation.
-// Overridable so the model can be pinned/rolled back without a code change.
-export const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5'
+// Classification cost tiers. Every email gets one cheap pass with
+// FAST_MODEL (no web search); only likely high-interest ones escalate to
+// RESEARCH_MODEL with a single web search. Reply text never uses a model -
+// see draftWriter.js. Overridable so a model can be pinned without a code
+// change.
+export const FAST_MODEL = process.env.ANTHROPIC_FAST_MODEL || 'claude-haiku-4-5'
+export const RESEARCH_MODEL = process.env.ANTHROPIC_RESEARCH_MODEL || 'claude-sonnet-5'
+
+// A first-pass fit score at or above this (or a high_interest category)
+// escalates the email to the research pass.
+export const RESEARCH_FIT_THRESHOLD = 60
 
 // Gmail label applied per triage category.
 export const CATEGORY_LABELS = {

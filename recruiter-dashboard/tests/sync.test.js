@@ -31,7 +31,6 @@ const { BATCH_BUDGET_MS, SyncBusyError, refreshTemplateDrafts, runSyncBatch } = 
 const { NotSendableError, sendDraft } = await import('../lib/triage/send')
 
 const KEEP_WARM = { is_recruiter_outreach: true, category: 'keep_warm', fit_score: 20, company: 'Acme' }
-// A template keeps drafting deterministic - no model call in these tests.
 const PREFS = { keep_warm_template: 'Thanks <name>.', high_interest_template: 'Tell me more.' }
 
 beforeEach(() => {
@@ -152,16 +151,29 @@ describe('runSyncBatch', () => {
 })
 
 describe('refreshTemplateDrafts', () => {
-  it('re-renders drafted rows whose category has a template', async () => {
+  it('re-renders drafted rows only in the changed categories', async () => {
     records.getDraftedRecords.mockResolvedValue([
       { id: 1, category: 'keep_warm', sender: 'Sam Lee <s@co.com>', subject: 'Hi', extracted_json: {} },
       { id: 2, category: 'high_interest', sender: 'x@co.com', subject: 'Yo', extracted_json: {} },
     ])
 
-    await refreshTemplateDrafts({ keep_warm_template: 'Thanks <name>.', high_interest_template: '' })
+    await refreshTemplateDrafts({ keep_warm_template: 'Thanks <name>.' }, ['keep_warm'])
 
     expect(records.updateDraftText).toHaveBeenCalledOnce()
     expect(records.updateDraftText).toHaveBeenCalledWith(1, 'Re: Hi', 'Thanks Sam.')
+  })
+
+  it('falls back to the default when a template is cleared', async () => {
+    records.getDraftedRecords.mockResolvedValue([
+      { id: 1, category: 'keep_warm', sender: 'Sam Lee <s@co.com>', subject: 'Hi', extracted_json: {} },
+    ])
+    await refreshTemplateDrafts({ keep_warm_template: '' }, ['keep_warm'])
+    expect(records.updateDraftText.mock.calls[0][2]).toMatch(/^Hi Sam,/)
+  })
+
+  it('does nothing when no template changed', async () => {
+    await refreshTemplateDrafts({}, [])
+    expect(records.getDraftedRecords).not.toHaveBeenCalled()
   })
 })
 

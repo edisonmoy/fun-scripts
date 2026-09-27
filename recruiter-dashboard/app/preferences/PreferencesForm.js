@@ -1,11 +1,11 @@
 'use client'
 
 import { useState } from 'react'
+import { DEFAULT_TEMPLATES } from '../../lib/triage/draftWriter'
 
-const DEFAULT_KEEP_WARM_HINT =
-  "Leave blank to use the default: thanks, one specific comment, then 'Happy to reconnect if things change in the future.'"
-const DEFAULT_HIGH_INTEREST_HINT =
-  'Leave blank to let the model draft a substantive reply with a clarifying question.'
+// Blank means the built-in default, shown as the placeholder.
+const DEFAULT_KEEP_WARM_HINT = `Leave blank to use the default:\n\n${DEFAULT_TEMPLATES.keep_warm}`
+const DEFAULT_HIGH_INTEREST_HINT = `Leave blank to use the default:\n\n${DEFAULT_TEMPLATES.high_interest}`
 
 export default function PreferencesForm({ initial }) {
   const [form, setForm] = useState({

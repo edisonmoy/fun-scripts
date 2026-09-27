@@ -1,6 +1,6 @@
 import { classify } from './classifier'
 import { CATEGORY_LABELS, DEFAULT_LOOKBACK_DAYS, GMAIL_SEARCH_QUERY } from './config'
-import { generateDraft, templateDraft, TEMPLATE_PREFERENCE_KEYS } from './draftWriter'
+import { draftReply } from './draftWriter'
 import * as gmail from './gmail'
 import * as records from './records'
 
@@ -8,7 +8,7 @@ import * as records from './records'
 // draft text) - only opaque ids and error messages.
 
 // Stop starting new threads once a batch has run this long. Classifying one
-// thread (with web research) can take tens of seconds, so this keeps a batch
+// thread that escalates to web research can take tens of seconds, so this keeps a batch
 // well inside the sync route's maxDuration; the client calls again for the
 // rest.
 export const BATCH_BUDGET_MS = 20_000
@@ -44,7 +44,7 @@ async function triageThread(threadId, preferences) {
     return
   }
 
-  const draft = await generateDraft(classification, thread, preferences)
+  const draft = draftReply(classification, thread, preferences)
   await records.insertTriageRecord({
     ...base,
     category,
@@ -103,19 +103,19 @@ export async function runSyncBatch({ skip = [], now = () => Date.now() } = {}) {
   }
 }
 
-// Re-applies each category's custom template to every still-drafted row, so
-// editing a template updates drafts awaiting review right away. Purely
-// deterministic (placeholder substitution from stored fields), no LLM call.
-export async function refreshTemplateDrafts(preferences) {
+// Re-renders every still-drafted row in `categories` from the template now
+// in effect, so editing a template updates drafts awaiting review right
+// away. Pure placeholder substitution from stored fields - no model call.
+export async function refreshTemplateDrafts(preferences, categories) {
+  if (categories.length === 0) return
   for (const record of await records.getDraftedRecords()) {
-    const key = TEMPLATE_PREFERENCE_KEYS[record.category]
-    if (!key || !preferences[key]) continue
+    if (!categories.includes(record.category)) continue
     const classification = { ...(record.extracted_json || {}), category: record.category }
-    const draft = templateDraft(
+    const draft = draftReply(
       classification,
       { sender: record.sender, subject: record.subject },
       preferences
     )
-    await records.updateDraftText(record.id, draft.subject, draft.body)
+    if (draft) await records.updateDraftText(record.id, draft.subject, draft.body)
   }
 }

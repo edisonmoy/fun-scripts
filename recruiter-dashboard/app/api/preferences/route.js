@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { query } from '../../../lib/db'
+import { TEMPLATE_PREFERENCE_KEYS } from '../../../lib/triage/draftWriter'
 import { refreshTemplateDrafts } from '../../../lib/triage/sync'
 
 export async function GET() {
@@ -33,6 +34,7 @@ export async function PUT(request) {
     compFloorValue = parsed
   }
 
+  const { rows: before } = await query('SELECT * FROM preferences WHERE id = 1')
   const { rows } = await query(
     `UPDATE preferences
      SET target_areas = $1,
@@ -54,8 +56,12 @@ export async function PUT(request) {
     ]
   )
 
-  // Drafts still awaiting review pick up an edited template right away.
-  await refreshTemplateDrafts(rows[0])
+  // Drafts still awaiting review pick up an edited template right away. Only
+  // categories whose template actually changed are re-rendered.
+  const changed = Object.entries(TEMPLATE_PREFERENCE_KEYS)
+    .filter(([, key]) => (before[0]?.[key] ?? '') !== rows[0][key])
+    .map(([category]) => category)
+  await refreshTemplateDrafts(rows[0], changed)
 
   return NextResponse.json({ preferences: rows[0] })
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { classify } from '../lib/triage/classifier'
-import { fillTemplate, generateDraft, templateDraft } from '../lib/triage/draftWriter'
+import { classify, needsResearch } from '../lib/triage/classifier'
+import { DEFAULT_TEMPLATES, draftReply, fillTemplate, templateFor } from '../lib/triage/draftWriter'
 
 const CLASSIFICATION = {
   is_recruiter_outreach: true,
@@ -19,6 +19,10 @@ function fakeClient(...responses) {
   return { messages: { create } }
 }
 
+const quickResult = (input) => ({
+  stop_reason: 'end_turn',
+  content: [{ type: 'text', text: JSON.stringify(input) }],
+})
 const toolUse = (input) => ({
   stop_reason: 'tool_use',
   content: [{ type: 'tool_use', name: 'classify_recruiter_email', input }],
@@ -36,69 +40,100 @@ describe('fillTemplate', () => {
   })
 })
 
-describe('templateDraft', () => {
-  it('returns null when the category has no template', () => {
-    expect(templateDraft(CLASSIFICATION, THREAD, { keep_warm_template: '' })).toBeNull()
+describe('templateFor', () => {
+  it("uses Edison's own template when set", () => {
+    expect(templateFor('keep_warm', { keep_warm_template: 'Mine' })).toBe('Mine')
   })
 
-  it('uses the category template verbatim with a Re: subject', () => {
-    expect(templateDraft(CLASSIFICATION, THREAD, { keep_warm_template: 'Thanks <name>.' })).toEqual({
-      subject: 'Re: Opportunity',
-      body: 'Thanks Jane.',
-    })
+  it('falls back to the built-in default when blank', () => {
+    expect(templateFor('keep_warm', { keep_warm_template: '  ' })).toBe(DEFAULT_TEMPLATES.keep_warm)
+    expect(templateFor('high_interest', {})).toBe(DEFAULT_TEMPLATES.high_interest)
+  })
+
+  it('has no template for ignore', () => {
+    expect(templateFor('ignore', {})).toBeNull()
   })
 })
 
-describe('generateDraft', () => {
-  it('uses the template without calling the model', async () => {
-    const client = fakeClient()
-    const draft = await generateDraft(CLASSIFICATION, THREAD, { keep_warm_template: 'Hi <name>' }, client)
-    expect(draft.body).toBe('Hi Jane')
-    expect(client.messages.create).not.toHaveBeenCalled()
+describe('draftReply', () => {
+  it('fills the default template with a Re: subject', () => {
+    expect(draftReply(CLASSIFICATION, THREAD, {})).toEqual({
+      subject: 'Re: Opportunity',
+      body: DEFAULT_TEMPLATES.keep_warm.replace('<name>', 'Jane'),
+    })
   })
 
-  it('asks the model for a structured draft when there is no template', async () => {
-    const client = fakeClient({
-      stop_reason: 'end_turn',
-      content: [{ type: 'text', text: '{"subject":"Re: Opportunity","body":"Thanks."}' }],
-    })
-    const draft = await generateDraft(CLASSIFICATION, THREAD, {}, client)
-    expect(draft).toEqual({ subject: 'Re: Opportunity', body: 'Thanks.' })
-    const request = client.messages.create.mock.calls[0][0]
-    expect(request.output_config.format.type).toBe('json_schema')
-    expect(request.messages[0].content).toContain('Extracted company: Acme')
+  it('built-in defaults avoid characters Edison never uses', () => {
+    for (const template of Object.values(DEFAULT_TEMPLATES)) {
+      expect(template).not.toMatch(/[!—–]/)
+    }
+  })
+})
+
+describe('needsResearch', () => {
+  it('escalates likely high-interest recruiter mail only', () => {
+    expect(needsResearch({ is_recruiter_outreach: true, category: 'high_interest', fit_score: 10 })).toBe(true)
+    expect(needsResearch({ is_recruiter_outreach: true, category: 'keep_warm', fit_score: 60 })).toBe(true)
+    expect(needsResearch({ is_recruiter_outreach: true, category: 'keep_warm', fit_score: 59 })).toBe(false)
+    expect(needsResearch({ is_recruiter_outreach: false, category: 'ignore', fit_score: 90 })).toBe(false)
   })
 })
 
 describe('classify', () => {
-  it('returns the classify tool input from the first response', async () => {
-    const client = fakeClient(toolUse(CLASSIFICATION))
+  it('stops after the cheap pass for ordinary outreach', async () => {
+    const client = fakeClient(quickResult(CLASSIFICATION))
     await expect(classify(THREAD, {}, client)).resolves.toEqual(CLASSIFICATION)
+
+    expect(client.messages.create).toHaveBeenCalledOnce()
     const request = client.messages.create.mock.calls[0][0]
-    expect(request.tool_choice).toEqual({ type: 'any' })
-    expect(request.tools.map((t) => t.name)).toEqual(['web_search', 'classify_recruiter_email'])
+    expect(request.model).toBe('claude-haiku-4-5')
+    expect(request.tools).toBeUndefined()
+    expect(request.output_config.format.type).toBe('json_schema')
+  })
+
+  it('escalates a likely high-interest email to one research pass that wins', async () => {
+    const quick = { ...CLASSIFICATION, category: 'high_interest', fit_score: 80 }
+    const researched = { ...quick, category: 'keep_warm', fit_score: 30 }
+    const client = fakeClient(quickResult(quick), toolUse(researched))
+
+    await expect(classify(THREAD, {}, client)).resolves.toEqual(researched)
+
+    const research = client.messages.create.mock.calls[1][0]
+    expect(research.model).toBe('claude-sonnet-5')
+    expect(research.tool_choice).toEqual({ type: 'any' })
+    const search = research.tools.find((t) => t.name === 'web_search')
+    expect(search.max_uses).toBe(1)
   })
 
   it('resumes a paused research turn', async () => {
+    const quick = { ...CLASSIFICATION, category: 'high_interest', fit_score: 80 }
     const paused = { stop_reason: 'pause_turn', content: [{ type: 'text', text: 'searching' }] }
-    const client = fakeClient(paused, toolUse(CLASSIFICATION))
-    await expect(classify(THREAD, {}, client)).resolves.toEqual(CLASSIFICATION)
-    const second = client.messages.create.mock.calls[1][0]
-    expect(second.messages.at(-1)).toEqual({ role: 'assistant', content: paused.content })
+    const client = fakeClient(quickResult(quick), paused, toolUse(quick))
+    await expect(classify(THREAD, {}, client)).resolves.toEqual(quick)
+    const third = client.messages.create.mock.calls[2][0]
+    expect(third.messages.at(-1)).toEqual({ role: 'assistant', content: paused.content })
   })
 
-  it('forces the classify tool when the model stops without classifying', async () => {
+  it('forces the classify tool when research stops without classifying', async () => {
+    const quick = { ...CLASSIFICATION, category: 'high_interest', fit_score: 80 }
     const stopped = { stop_reason: 'end_turn', content: [{ type: 'text', text: 'done' }] }
-    const client = fakeClient(stopped, toolUse(CLASSIFICATION))
-    await expect(classify(THREAD, {}, client)).resolves.toEqual(CLASSIFICATION)
-    const forced = client.messages.create.mock.calls[1][0]
+    const client = fakeClient(quickResult(quick), stopped, toolUse(quick))
+    await expect(classify(THREAD, {}, client)).resolves.toEqual(quick)
+    const forced = client.messages.create.mock.calls[2][0]
     expect(forced.tool_choice).toEqual({ type: 'tool', name: 'classify_recruiter_email' })
     expect(forced.tools.map((t) => t.name)).toEqual(['classify_recruiter_email'])
   })
 
-  it('throws if even the forced call does not classify', async () => {
-    const stopped = { stop_reason: 'end_turn', content: [{ type: 'text', text: 'no' }] }
-    const client = fakeClient(stopped, stopped)
-    await expect(classify(THREAD, {}, client)).rejects.toThrow('did not return')
+  it('keeps the cheap result if the research pass fails', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const quick = { ...CLASSIFICATION, category: 'high_interest', fit_score: 80 }
+    const client = fakeClient(quickResult(quick))
+    client.messages.create.mockRejectedValueOnce(new Error('overloaded'))
+    await expect(classify(THREAD, {}, client)).resolves.toEqual(quick)
+  })
+
+  it('throws if the cheap pass returns nothing', async () => {
+    const client = fakeClient({ stop_reason: 'max_tokens', content: [] })
+    await expect(classify(THREAD, {}, client)).rejects.toThrow('no quick result')
   })
 })

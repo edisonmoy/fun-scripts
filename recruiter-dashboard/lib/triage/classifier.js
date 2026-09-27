@@ -1,19 +1,20 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { ANTHROPIC_MODEL } from './config'
+import { FAST_MODEL, RESEARCH_FIT_THRESHOLD, RESEARCH_MODEL } from './config'
 
 export const CLASSIFY_TOOL_NAME = 'classify_recruiter_email'
 
-// Bound on how many pause_turn continuations a single classify() call will
-// ride out before giving up - a long research turn shouldn't loop forever.
-const MAX_RESEARCH_TURNS = 4
+// Bound on how many pause_turn continuations the research pass will ride
+// out before forcing a classification - one search rarely needs more.
+const MAX_RESEARCH_TURNS = 2
 
 // Server-side tool: Anthropic executes the search and injects results into
-// the same response, so the model can research the company before it ever
-// gets to classify_recruiter_email - no client-side execution needed here.
+// the same response. Capped at one search: search results are the single
+// biggest input-token cost, and one lookup of what the company does is
+// enough to confirm or reject a high-interest match.
 const WEB_SEARCH_TOOL = {
   type: 'web_search_20260209',
   name: 'web_search',
-  max_uses: 3,
+  max_uses: 1,
 }
 
 // Forced tool-use / structured-output schema. strict guarantees the
@@ -99,11 +100,8 @@ export const CLASSIFY_TOOL = {
   }
 }
 
-function buildSystemPrompt(preferences) {
+function preferencesPrompt(preferences) {
   return (
-    "You are triaging recruiter/job-outreach emails on Edison's behalf. Call the " +
-    `${CLASSIFY_TOOL_NAME} tool with your classification of the email thread below ` +
-    'the message.\n\n' +
     "Edison's stated preferences:\n" +
     `- Target areas: ${preferences.target_areas ?? ''}\n` +
     `- Seniority: ${preferences.seniority ?? ''}\n` +
@@ -116,16 +114,35 @@ function buildSystemPrompt(preferences) {
     'outreach at all ' +
     '(spam, newsletters, personal email, colleagues, etc.) should have ' +
     "is_recruiter_outreach=false and category='ignore'. If a company in " +
-    "company_excludes is the sender, also use category='ignore'.\n\n" +
-    'If the email names a company, use the web_search tool to briefly research ' +
-    'what that company actually does (product, industry, mission) before ' +
-    "classifying - an email's own framing of a role can be generic or vague " +
-    'even when the company itself is a clear match (or a clear non-match) for ' +
-    "the target areas, so don't rely on the email text alone. One or two " +
-    'searches is usually enough; skip searching entirely if no company name is ' +
-    "identifiable, or if the company is already unambiguous (e.g. a well-known " +
-    "company you're confident about). Once you've done any research you need, " +
-    'call classify_recruiter_email with your final assessment.'
+    "company_excludes is the sender, also use category='ignore'."
+  )
+}
+
+// First pass: judge from the email text alone.
+function quickSystemPrompt(preferences) {
+  return (
+    "You are triaging recruiter/job-outreach emails on Edison's behalf. Classify " +
+    'the email thread in the message.\n\n' +
+    preferencesPrompt(preferences) +
+    '\n\nJudge from the email text alone. If the company might plausibly be in ' +
+    "the target areas but the email is too vague to tell, lean toward a higher " +
+    'fit_score so it gets a closer look rather than being dismissed.'
+  )
+}
+
+// Research pass: may look up what the company actually does.
+function researchSystemPrompt(preferences) {
+  return (
+    "You are triaging recruiter/job-outreach emails on Edison's behalf. Call the " +
+    `${CLASSIFY_TOOL_NAME} tool with your classification of the email thread below ` +
+    'the message.\n\n' +
+    preferencesPrompt(preferences) +
+    '\n\nIf the email names a company, you may run one web_search to check what ' +
+    "that company actually does (product, industry, mission) - an email's own " +
+    'framing of a role can be generic or vague even when the company itself is a ' +
+    "clear match (or a clear non-match) for the target areas. Skip searching if no " +
+    "company name is identifiable, or if you're already confident what the company " +
+    'does. Then call classify_recruiter_email with your final assessment.'
   )
 }
 
@@ -136,28 +153,40 @@ function extractClassification(response) {
   return block ? block.input : null
 }
 
-// Classifies one email thread ({sender, subject, body}) against the
-// preferences row, allowed to web-search a named company before deciding.
-// Returns an object matching CLASSIFY_TOOL's input schema. Its `comp` field
-// is LLM-inferred from whatever the email mentioned - a hint, not a fact.
-//
-// tool_choice is "any" (not forced to classify_recruiter_email) so the model
-// is free to call web_search first. If it finishes a turn without having
-// classified (e.g. it only searched and stopped), one forced follow-up call
+function userMessage(thread) {
+  return {
+    role: 'user',
+    content: `Subject: ${thread.subject || ''}\nFrom: ${thread.sender || ''}\n\n${thread.body || ''}`,
+  }
+}
+
+// Cheap pass: FAST_MODEL, no tools, structured output against the same
+// schema the classify tool uses.
+async function quickClassify(thread, preferences, client) {
+  const response = await client.messages.create({
+    model: FAST_MODEL,
+    max_tokens: 1024,
+    system: quickSystemPrompt(preferences),
+    output_config: { format: { type: 'json_schema', schema: CLASSIFY_TOOL.input_schema } },
+    messages: [userMessage(thread)],
+  })
+  const text = response.content.find((b) => b.type === 'text')?.text
+  if (!text) throw new Error(`classifier: no quick result (stop_reason=${response.stop_reason})`)
+  return JSON.parse(text)
+}
+
+// Research pass: RESEARCH_MODEL with one web search available. tool_choice
+// is "any" (not forced to classify_recruiter_email) so the model is free to
+// search first; if it stops without classifying, one forced follow-up call
 // with only the classify tool available guarantees termination.
-export async function classify(thread, preferences, client = new Anthropic()) {
-  const system = buildSystemPrompt(preferences)
-  let messages = [
-    {
-      role: 'user',
-      content: `Subject: ${thread.subject || ''}\nFrom: ${thread.sender || ''}\n\n${thread.body || ''}`,
-    },
-  ]
+async function researchClassify(thread, preferences, client) {
+  const system = researchSystemPrompt(preferences)
+  let messages = [userMessage(thread)]
 
   let response = null
   for (let turn = 0; turn < MAX_RESEARCH_TURNS; turn++) {
     response = await client.messages.create({
-      model: ANTHROPIC_MODEL,
+      model: RESEARCH_MODEL,
       max_tokens: 2048,
       system,
       tools: [WEB_SEARCH_TOOL, CLASSIFY_TOOL],
@@ -184,7 +213,7 @@ export async function classify(thread, preferences, client = new Anthropic()) {
     },
   ]
   response = await client.messages.create({
-    model: ANTHROPIC_MODEL,
+    model: RESEARCH_MODEL,
     max_tokens: 1024,
     system,
     tools: [CLASSIFY_TOOL],
@@ -195,4 +224,30 @@ export async function classify(thread, preferences, client = new Anthropic()) {
   if (result) return result
 
   throw new Error('classifier: model did not return a classify_recruiter_email tool call')
+}
+
+export function needsResearch(quick) {
+  return (
+    quick.is_recruiter_outreach &&
+    (quick.category === 'high_interest' || (quick.fit_score ?? 0) >= RESEARCH_FIT_THRESHOLD)
+  )
+}
+
+// Classifies one email thread ({sender, subject, body}) against the
+// preferences row. Returns an object matching CLASSIFY_TOOL's input schema;
+// its `comp` field is LLM-inferred - a hint, not a fact.
+//
+// Most recruiter mail is ordinary keep-warm outreach, so every email first
+// gets a cheap text-only pass. Only likely high-interest ones pay for the
+// research pass, whose result replaces the quick one. If research fails,
+// the quick result stands rather than losing the email.
+export async function classify(thread, preferences, client = new Anthropic()) {
+  const quick = await quickClassify(thread, preferences, client)
+  if (!needsResearch(quick)) return quick
+  try {
+    return await researchClassify(thread, preferences, client)
+  } catch (err) {
+    console.error(`research pass failed, keeping quick classification: ${err.message}`)
+    return quick
+  }
 }

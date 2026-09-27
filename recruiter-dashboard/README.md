@@ -19,20 +19,23 @@ repeatedly until it reports nothing left. Each call is one time-boxed batch
    `in:inbox`. Threads already in `triage_records` (any status) are skipped.
 2. For each new thread, until the batch has run ~20s:
    - Fetch the plaintext of its most recent message.
-   - Classify it via the Anthropic API (`lib/triage/classifier.js`). The
-     model may `web_search` a named company first, since an email's own
-     framing can be generic even when the company is a clear match (or
-     non-match). A strict tool schema means no free-text parsing, and a
-     forced follow-up call guarantees a classification even if the model
-     stops after searching.
+   - Classify it (`lib/triage/classifier.js`) in two tiers to keep cost
+     down. Every email gets one cheap pass with the fast model
+     (`claude-haiku-4-5`), with no tools, judged from the email text
+     alone. Only emails that pass looks like possible high-interest
+     (`category=high_interest` or `fit_score >= 60`) get a research pass
+     with `claude-sonnet-5` and **one** web search, since an email's own
+     framing can be vague about what the company does; its result
+     replaces the quick one. A strict schema means no free-text parsing
+     either way.
    - Not recruiter outreach, or classified `ignore`: stored as
      `status="ignored"` for dedupe/audit, with no draft.
    - Otherwise: apply the category's Gmail label (`Recruiter/KeepWarm`,
-     `Recruiter/HighInterest`) and draft a reply (`lib/triage/draftWriter.js`).
-     A custom template for the category (`preferences.keep_warm_template` /
-     `high_interest_template`) is used **verbatim** with `<name>`,
-     `<company>`, `<role>` filled in, with no model call. Without one, the
-     model drafts a reply required to reference specifics from the email.
+     `Recruiter/HighInterest`) and fill in the category's reply template
+     (`lib/triage/draftWriter.js`) - no model ever writes reply text. The
+     template is Edison's own (`preferences.keep_warm_template` /
+     `high_interest_template`) when set, else a built-in default, with
+     `<name>`, `<company>`, `<role>` filled in.
      Stored as `status="drafted"`.
 3. `last_run_at` only advances once a sync fully catches up with no failed
    threads, so a failure can't fall outside the next sync's search window.
@@ -49,8 +52,8 @@ the row goes back to `drafted`. The reply carries `In-Reply-To`/`References`
 headers and the thread's own subject, so it stays threaded in the
 recruiter's mail client, not just in Edison's Gmail.
 
-**Templates.** Saving preferences re-applies an edited template to every
-still-drafted row right away.
+**Templates.** Saving preferences re-applies a changed template (or the
+default, if one is cleared) to every still-drafted row in that category.
 
 ## Schema
 
@@ -65,12 +68,12 @@ works against a fresh database or an existing one.
 - `DASHBOARD_AUTH_SECRET` (required) - random secret that signs the auth
   cookie (not the password itself - see `lib/auth.js`). Generate with e.g.
   `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
-- `ANTHROPIC_API_KEY` (required) - for classification and drafting.
+- `ANTHROPIC_API_KEY` (required) - for classification.
 - `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN` (required)
   - Gmail OAuth credentials. Mint the refresh token with
   `scripts/authorize_gmail.py` (instructions in the script).
-- `ANTHROPIC_MODEL` (optional) - overrides the model (default
-  `claude-sonnet-5`).
+- `ANTHROPIC_FAST_MODEL` / `ANTHROPIC_RESEARCH_MODEL` (optional) - override
+  the two model tiers (defaults `claude-haiku-4-5` / `claude-sonnet-5`).
 
 ## Running locally
 
