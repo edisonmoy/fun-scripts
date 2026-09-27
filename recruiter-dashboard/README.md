@@ -1,90 +1,115 @@
 # recruiter-dashboard
 
-A small Next.js dashboard for reviewing recruiter/job-outreach emails that
-have been triaged by the `gmail-recruiter-triage` job (in this same repo,
-one directory up). That job runs daily via GitHub Actions, reads Edison's
-Gmail, classifies each recruiter email, drafts a reply, and writes one row
-per email into a shared Postgres `triage_records` table. This dashboard is
-the review surface: it lists those rows so drafts can be approved or
-rejected, and lets Edison edit his triage preferences (target areas,
-seniority, comp floor, autonomy settings, tone notes).
+A small Next.js app for triaging Edison's recruiter/job-outreach email. It
+pulls candidate threads from Gmail, classifies each one against his
+preferences, drafts a reply, and lists everything for review. **Nothing is
+ever sent without a click:** every reply waits in the dashboard until
+Edison sends it himself.
 
-The two projects only communicate through the Postgres database - see
-`schema.sql` in each directory for the (identical) shared schema. This
-dashboard never talks to Gmail directly and never reads files from
-`../gmail-recruiter-triage`; it only reads/writes the shared DB.
+## How it works
 
-Approving a `drafted` row sets its status to `approved_pending`; the next
-run of the daily job is what actually sends the reply via Gmail and marks
-it `sent`. Rejecting sets it to `rejected`. This dashboard does not send
-email itself.
+**Sync (the "Sync" button).** There's no schedule or background job; triage
+only runs when the button is clicked. Each click calls `POST /api/sync`
+repeatedly until it reports nothing left. Each call is one time-boxed batch
+(`lib/triage/sync.js`):
+
+1. Search Gmail for candidate threads since the last completed sync
+   (`run_state.last_run_at`), using a broad keyword heuristic
+   (`GMAIL_SEARCH_QUERY` in `lib/triage/config.js`) restricted to
+   `in:inbox`. Threads already in `triage_records` (any status) are skipped.
+2. For each new thread, until the batch has run ~20s:
+   - Fetch the plaintext of its most recent message.
+   - Classify it (`lib/triage/classifier.js`) in two tiers to keep cost
+     down. Every email gets one cheap pass with the fast model
+     (`claude-haiku-4-5`), with no tools, judged from the email text
+     alone. Only emails that pass looks like possible high-interest
+     (`category=high_interest` or `fit_score >= 60`) get a research pass
+     with `claude-sonnet-5` and **one** web search, since an email's own
+     framing can be vague about what the company does; its result
+     replaces the quick one. A strict schema means no free-text parsing
+     either way.
+   - Not recruiter outreach, or classified `ignore`: stored as
+     `status="ignored"` for dedupe/audit, with no draft.
+   - Otherwise: apply the category's Gmail label (`Recruiter/KeepWarm`,
+     `Recruiter/HighInterest`) and fill in the category's reply template
+     (`lib/triage/draftWriter.js`) - no model ever writes reply text. The
+     template is Edison's own (`preferences.keep_warm_template` /
+     `high_interest_template`) when set, else a built-in default, with
+     `<name>`, `<company>`, `<role>` filled in.
+     Stored as `status="drafted"`.
+3. `last_run_at` only advances once a sync fully catches up with no failed
+   threads, so a failure can't fall outside the next sync's search window.
+
+A thread that fails is skipped for the rest of that sync and retried on the
+next one. A lease on `run_state.sync_locked_until` stops two syncs (two tabs,
+double clicks) from overlapping. It expires on its own if a sync dies.
+
+**Send.** "Send" calls `POST /api/triage/[id]/send`, which sends immediately
+via Gmail (`lib/triage/send.js`). It first claims the row with a conditional
+`drafted -> sent` update, so a double click or a second tab can never send
+the same reply twice. If Gmail rejects the send, the claim is released and
+the row goes back to `drafted`. The reply carries `In-Reply-To`/`References`
+headers and the thread's own subject, so it stays threaded in the
+recruiter's mail client, not just in Edison's Gmail.
+
+**Templates.** Saving preferences re-applies a changed template (or the
+default, if one is cleared) to every still-drafted row in that category.
 
 ## Schema
 
-`schema.sql` in this directory is a byte-for-byte copy of
-`../gmail-recruiter-triage/schema.sql`. It's duplicated (not read
-cross-directory at runtime) because Vercel deploys this project with a
-scoped root directory, so the sibling file may not be present on disk after
-deploy. **If the schema changes, update both copies in the same change.**
-The app applies this file's `CREATE TABLE IF NOT EXISTS` / seed statements
-once per cold start (see `lib/db.js`), so the dashboard works even if it's
-the first thing to ever touch a fresh database.
+`schema.sql` is applied idempotently once per cold start (see `lib/db.js`):
+`CREATE TABLE IF NOT EXISTS`, seed rows, and in-place migrations, so the app
+works against a fresh database or an existing one.
 
 ## Environment variables
 
-- `DATABASE_URL` (required) - a Postgres connection string, e.g.
-  `postgres://user:pass@host:5432/dbname`. Works with a local Postgres, or a
-  free dev branch on Neon / Vercel Postgres.
-- `DASHBOARD_PASSWORD` (required) - the login password for this dashboard.
-- `DASHBOARD_AUTH_SECRET` (required) - a random signing secret for the auth
+- `DATABASE_URL` (required) - Postgres connection string.
+- `DASHBOARD_PASSWORD` (required) - the login password.
+- `DASHBOARD_AUTH_SECRET` (required) - random secret that signs the auth
   cookie (not the password itself - see `lib/auth.js`). Generate with e.g.
   `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+- `ANTHROPIC_API_KEY` (required) - for classification.
+- `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN` (required)
+  - Gmail OAuth credentials. Mint the refresh token with
+  `scripts/authorize_gmail.py` (instructions in the script).
+- `ANTHROPIC_FAST_MODEL` / `ANTHROPIC_RESEARCH_MODEL` (optional) - override
+  the two model tiers (defaults `claude-haiku-4-5` / `claude-sonnet-5`).
 
 ## Running locally
 
 ```
 npm install
 npm run dev
+npm test
 ```
 
-You'll need a Postgres instance reachable via `DATABASE_URL` (set it in
-`.env.local`, which is gitignored). The app creates its own tables on first
-request if they don't already exist.
+Put the variables above in `.env.local` (gitignored). The app creates its
+own tables on first request.
 
 ## Deployment
 
-Deployed as a Vercel project (Next.js App Router, no special build config
-needed beyond setting `DATABASE_URL` in the project's environment
-variables).
+Deployed as a Vercel project with **Root Directory set to
+`recruiter-dashboard`** (the repo root has no Next.js app, so a build from
+there fails). No other build config is needed beyond the environment
+variables above.
 
-**Important: this dashboard displays sensitive personal data** - recruiter
-names/emails, company names, and compensation figures pulled out of
-Edison's inbox. Vercel Deployment Protection (password/SSO at the platform
-level) requires a Pro plan, which isn't part of this project's plan, so
-access control is built into the app itself instead:
+**This app displays sensitive personal data** - recruiter names/emails,
+company names, and compensation figures from Edison's inbox. Vercel
+Deployment Protection requires a Pro plan, so access control is built in:
 
 - `middleware.js` gates every route except `/login` and `/api/login` behind
-  an httpOnly auth cookie, checked *before* any page fetches data from
-  Postgres - this matters because the pages are server-rendered with fresh
-  DB data on every request (`export const dynamic = 'force-dynamic'`), so a
-  client-only (e.g. localStorage) check would not actually prevent an
-  unauthenticated request from receiving the rendered HTML.
-- `/login` posts a password to `/api/login` (`app/api/login/route.js`),
-  which compares it against `DASHBOARD_PASSWORD` and, on success, sets the
-  auth cookie to a fixed HMAC digest keyed by `DASHBOARD_AUTH_SECRET` (see
-  `lib/auth.js`) - the cookie never encodes the password itself.
-- This is intentionally simple (no user table, no session store, single
-  shared password) - appropriate for a single-user personal tool, not
-  meant to generalize to multiple users.
+  an httpOnly auth cookie, checked *before* any page reads Postgres - pages
+  are server-rendered with fresh data on every request, so a client-only
+  check wouldn't stop an unauthenticated request from getting the HTML.
+- `/api/login` compares the password against `DASHBOARD_PASSWORD` and sets
+  the cookie to a fixed HMAC digest keyed by `DASHBOARD_AUTH_SECRET` - the
+  cookie never encodes the password itself.
+- Single shared password, no user table - fine for a single-user tool.
 
-## Known gaps / follow-ups
+Server logs never include email content (senders, subjects, company names,
+comp, draft text), only opaque ids and error messages.
 
-- No automated test suite yet. For a personal single-user tool this was
-  judged low priority for v1, but API route validation (status/enum
-  whitelisting) and the schema-apply-on-boot logic would be reasonable
-  first tests to add.
-- The full draft text is stored in `triage_records.draft_subject`/
-  `draft_body` and rendered inline. If you want to tweak the wording before
-  approving, edit the corresponding Gmail draft directly (`gmail_draft_id`)
-  - this dashboard doesn't have an edit-in-place UI for the draft text
-    itself, only approve/reject.
+## Known gaps
+
+- There's no edit-in-place for draft text: send it as drafted, or reject
+  it and reply from Gmail.

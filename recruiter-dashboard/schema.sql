@@ -1,8 +1,6 @@
--- Mirrors gmail-recruiter-triage/schema.sql exactly. Duplicated here (rather
--- than read cross-directory at runtime) because Vercel deploys this project
--- with a scoped root directory, so the sibling file isn't guaranteed to be
--- reachable on disk after deploy. If you change the schema, update BOTH
--- copies in the same change.
+-- Applied idempotently once per cold start (see lib/db.js): everything is
+-- CREATE ... IF NOT EXISTS, ON CONFLICT DO NOTHING, or an idempotent
+-- migration, so it's safe to run against a fresh or an existing database.
 
 CREATE TABLE IF NOT EXISTS preferences (
     id INTEGER PRIMARY KEY DEFAULT 1,
@@ -10,21 +8,9 @@ CREATE TABLE IF NOT EXISTS preferences (
     seniority TEXT NOT NULL DEFAULT '',
     comp_floor INTEGER,
     company_excludes TEXT NOT NULL DEFAULT '',
-    autonomy_keep_warm TEXT NOT NULL DEFAULT 'draft_only'
-        CHECK (autonomy_keep_warm IN ('draft_only', 'auto_send')),
-    autonomy_high_interest TEXT NOT NULL DEFAULT 'draft_only'
-        CHECK (autonomy_high_interest IN ('draft_only', 'auto_send')),
-    -- Extra gate on top of the auto_send toggles above: when set, a
-    -- category's autonomy=auto_send only actually auto-sends if fit_score
-    -- also clears this bar. Null means no extra gate (all-or-nothing, as
-    -- the toggle alone implies). Directionality differs on purpose:
-    -- keep_warm auto-sends the LOW-fit ones (clearly generic outreach,
-    -- safe to auto-dismiss); high_interest auto-sends the HIGH-fit ones
-    -- (confidently a strong match).
-    keep_warm_auto_send_max_fit INTEGER,
-    high_interest_auto_send_min_fit INTEGER,
-    -- Optional custom instructions for keep_warm/high_interest replies.
-    -- Empty means fall back to draft_writer.py's built-in defaults.
+    -- Optional custom reply templates for keep_warm/high_interest, used
+    -- verbatim (placeholders filled in). Empty means the model drafts a
+    -- reply from lib/triage/draftWriter.js's built-in style instead.
     keep_warm_template TEXT NOT NULL DEFAULT '',
     high_interest_template TEXT NOT NULL DEFAULT '',
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -42,19 +28,18 @@ CREATE TABLE IF NOT EXISTS triage_records (
     extracted_json JSONB NOT NULL DEFAULT '{}',
     rationale TEXT,
     gmail_draft_id TEXT,
-    -- The actual reply text created for this thread (mirrors what was put
-    -- in the Gmail draft), stored here so the dashboard can show it without
-    -- needing Gmail API access itself. Null for category='ignore' rows.
+    -- The reply text drafted for this thread, reviewed and sent from the
+    -- dashboard. Null for category='ignore' rows.
     draft_subject TEXT,
     draft_body TEXT,
-    -- When the reply actually went out (auto_send at triage time, or later
-    -- via approved_pending -> sent). Null until status='sent'. Distinct from
+    -- When the reply actually went out. Null until status='sent'. Distinct from
     -- received_at (the original email) and created_at (when this row was
     -- first triaged) so the dashboard can show both dates on sent items.
     sent_at TIMESTAMPTZ,
-    -- drafted: draft created, awaiting manual send in Gmail or dashboard action
-    -- approved_pending: dashboard marked it to send; next Action run sends it
-    -- sent: the reply went out (auto_send or approved_pending -> sent)
+    -- drafted: draft created, awaiting review in the dashboard
+    -- approved_pending: legacy (queued for the old GitHub Actions job to send);
+    --   no longer written - migrated back to drafted below
+    -- sent: the reply went out (sent from the dashboard)
     -- ignored: classifier decided this wasn't worth a reply (kept for dedupe/audit)
     -- rejected: user explicitly rejected a drafted reply from the dashboard
     status TEXT NOT NULL DEFAULT 'drafted'
@@ -66,12 +51,9 @@ CREATE TABLE IF NOT EXISTS triage_records (
 CREATE TABLE IF NOT EXISTS run_state (
     id INTEGER PRIMARY KEY DEFAULT 1,
     last_run_at TIMESTAMPTZ,
-    -- GitHub Actions run id of an in-flight "Run now" dispatch, so the
-    -- dashboard's run-status panel can resume on page load instead of
-    -- losing track of work that's actually still happening server-side.
-    -- BIGINT because GH run ids exceed Postgres's INTEGER range. Cleared
-    -- back to NULL once that run is observed as completed.
-    active_run_id BIGINT,
+    -- Lease held while a dashboard sync runs, so two can't overlap. Expires
+    -- on its own if a sync dies mid-flight (see lib/triage/records.js).
+    sync_locked_until TIMESTAMPTZ,
     CONSTRAINT run_state_single_row CHECK (id = 1)
 );
 
@@ -82,12 +64,20 @@ INSERT INTO run_state (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 -- TABLE IF NOT EXISTS above is a no-op against an already-live table, so
 -- this covers upgrading it in place. Safe to run every time.
 ALTER TABLE triage_records ADD COLUMN IF NOT EXISTS fit_score INTEGER;
-ALTER TABLE preferences ADD COLUMN IF NOT EXISTS keep_warm_auto_send_max_fit INTEGER;
-ALTER TABLE preferences ADD COLUMN IF NOT EXISTS high_interest_auto_send_min_fit INTEGER;
 ALTER TABLE preferences ADD COLUMN IF NOT EXISTS keep_warm_template TEXT NOT NULL DEFAULT '';
 ALTER TABLE preferences ADD COLUMN IF NOT EXISTS high_interest_template TEXT NOT NULL DEFAULT '';
 ALTER TABLE preferences DROP COLUMN IF EXISTS tone_notes;
-ALTER TABLE run_state ADD COLUMN IF NOT EXISTS active_run_id BIGINT;
+-- Auto-send was removed: every reply is reviewed and sent from the dashboard.
+ALTER TABLE preferences DROP COLUMN IF EXISTS autonomy_keep_warm;
+ALTER TABLE preferences DROP COLUMN IF EXISTS autonomy_high_interest;
+ALTER TABLE preferences DROP COLUMN IF EXISTS keep_warm_auto_send_max_fit;
+ALTER TABLE preferences DROP COLUMN IF EXISTS high_interest_auto_send_min_fit;
+-- Triage moved from GitHub Actions into the dashboard's own sync.
+ALTER TABLE run_state DROP COLUMN IF EXISTS active_run_id;
+ALTER TABLE run_state ADD COLUMN IF NOT EXISTS sync_locked_until TIMESTAMPTZ;
+-- Rows queued for the old job to send go back to review instead of being
+-- sent without a fresh click.
+UPDATE triage_records SET status = 'drafted', updated_at = now() WHERE status = 'approved_pending';
 ALTER TABLE triage_records ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ;
 -- Best-effort backfill for rows sent before sent_at existed: updated_at is
 -- the closest proxy we have (it's set on every write, and a 'sent' row's

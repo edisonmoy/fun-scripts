@@ -1,0 +1,33 @@
+name: Recruiter dashboard checks
+
+on:
+  push:
+    paths:
+      - "recruiter-dashboard/**"
+  pull_request:
+    paths:
+      - "recruiter-dashboard/**"
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: recruiter-dashboard/package-lock.json
+
+      - name: Install dependencies
+        working-directory: recruiter-dashboard
+        run: npm ci
+
+      - name: Run tests
+        working-directory: recruiter-dashboard
+        run: npm test
+
+      - name: Build
+        working-directory: recruiter-dashboard
+        run: npm run build

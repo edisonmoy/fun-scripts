@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { query } from '../../../lib/db'
 
 const CATEGORIES = new Set(['ignore', 'keep_warm', 'high_interest'])
-const STATUSES = new Set(['drafted', 'approved_pending', 'sent', 'ignored', 'rejected'])
+const STATUSES = new Set(['drafted', 'sent', 'ignored', 'rejected'])
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url)

@@ -1,20 +1,20 @@
 """One-time, manually-run script to obtain a Gmail OAuth refresh token.
 
-This is NOT invoked by the GitHub Actions workflow - run it locally, once,
-whenever setting up (or re-authorizing) this tool.
+The dashboard's sync and send routes use this token to read and reply to
+Edison's Gmail. Run it locally, once, whenever setting up (or
+re-authorizing) access.
 
 Setup:
 1. In Google Cloud Console, create an OAuth client of type "Desktop app"
    (APIs & Services -> Credentials), with the Gmail API enabled on the
    project.
-2. Either download the client secret JSON to this directory as
+2. Either download the client secret JSON next to this script as
    `client_secret.json`, or export GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET.
-3. Run `python authorize.py`. It opens a browser for the OAuth consent
-   flow (scopes: gmail.modify, gmail.compose, gmail.send) and prints a
-   refresh token.
-4. Store that refresh token as the `GMAIL_REFRESH_TOKEN` GitHub repo
-   secret (Settings -> Secrets and variables -> Actions). Also store the
-   client id/secret as `GMAIL_CLIENT_ID` / `GMAIL_CLIENT_SECRET`.
+3. `pip install google-auth-oauthlib`, then run `python authorize_gmail.py`.
+   It opens a browser for the OAuth consent flow (scopes: gmail.modify,
+   gmail.compose, gmail.send) and prints a refresh token.
+4. Set `GMAIL_REFRESH_TOKEN`, `GMAIL_CLIENT_ID` and `GMAIL_CLIENT_SECRET`
+   as environment variables on the recruiter-dashboard Vercel project.
 
 The printed refresh token is a long-lived credential - treat it like a
 password (don't paste it into logs, commits, or chat).
@@ -53,7 +53,7 @@ def _client_config():
 def main():
     flow = InstalledAppFlow.from_client_config(_client_config(), SCOPES)
     credentials = flow.run_local_server(port=0)
-    print("Success. Store this as the GMAIL_REFRESH_TOKEN GitHub secret:")
+    print("Success. Set this as GMAIL_REFRESH_TOKEN on the Vercel project:")
     print(credentials.refresh_token)
 
 
