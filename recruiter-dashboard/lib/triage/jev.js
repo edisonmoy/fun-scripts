@@ -9,9 +9,9 @@ import { JEV_MODEL } from './config'
 
 const API_URL = 'https://api.typesafe.ai/v1/systemone'
 
-// 429 (rate limited) and 529 (overloaded) are transient; anything else is
-// a real error.
-const RETRY_STATUSES = new Set([429, 529])
+// Rate limits (429), overload (529), and gateway errors are transient;
+// anything else is a real error.
+const RETRY_STATUSES = new Set([429, 500, 502, 503, 504, 529])
 const MAX_ATTEMPTS = 3
 const REQUEST_TIMEOUT_MS = 15_000
 

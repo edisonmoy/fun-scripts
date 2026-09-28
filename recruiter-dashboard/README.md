@@ -95,6 +95,18 @@ npm test
 Put the variables above in `.env.local` (gitignored). The app creates its
 own tables on first request.
 
+## Evals
+
+`npm run eval:sorting` compares Jev against the pre-Jev Haiku quick pass
+(`evals/sorting/haikuBaseline.js`, a frozen copy) on a labeled set of
+synthetic emails (`evals/sorting/dataset.js`): outreach and category
+accuracy, high-interest recall, research escalations, latency, and cost
+per 1k emails at published prices. It calls live APIs, so it needs
+`JEV_API_KEY` and `ANTHROPIC_API_KEY` (the Haiku side is skipped without
+the latter) and is never part of `npm test`. `RUNS` (default 3) and
+`SYSTEMS` (default `jev,haiku`) are optional. Full results land in
+`evals/sorting/results/` (gitignored).
+
 ## Deployment
 
 Deployed as a Vercel project with **Root Directory set to

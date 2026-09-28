@@ -5,3 +5,5 @@ node_modules/
 .env*
 # OAuth client secret used by scripts/authorize_gmail.py
 client_secret.json
+# Eval outputs (live API results)
+evals/**/results/
