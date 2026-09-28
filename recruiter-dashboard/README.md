@@ -19,15 +19,21 @@ repeatedly until it reports nothing left. Each call is one time-boxed batch
    `in:inbox`. Threads already in `triage_records` (any status) are skipped.
 2. For each new thread, until the batch has run ~20s:
    - Fetch the plaintext of its most recent message.
-   - Classify it (`lib/triage/classifier.js`) in two tiers to keep cost
-     down. Every email gets one cheap pass with the fast model
-     (`claude-haiku-4-5`), with no tools, judged from the email text
-     alone. Only emails that pass looks like possible high-interest
-     (`category=high_interest` or `fit_score >= 60`) get a research pass
-     with `claude-sonnet-5` and **one** web search, since an email's own
-     framing can be vague about what the company does; its result
-     replaces the quick one. A strict schema means no free-text parsing
-     either way.
+   - Sort it with [Jev](https://docs.typesafe.ai/api), TypeSafe AI's System
+     One model (`lib/triage/jev.js`): one call answers three typed
+     questions - recruiter outreach or not, category, and a fit rubric
+     scaled to a 0-100 `fit_score`. Jev doesn't generate text, so the
+     rest of classification (`lib/triage/classifier.js`) depends on how
+     it sorted:
+     - Possible high-interest (`category=high_interest` or
+       `fit_score >= 60`): a research pass with `claude-sonnet-5` and
+       **one** web search, since an email's own framing can be vague about
+       what the company does; its result replaces Jev's.
+     - Other mail that gets a reply: one cheap pass with the fast model
+       (`claude-haiku-4-5`), no tools, to extract company, role, comp,
+       summary, and rationale. Jev's sorting stands.
+     - Sorted as `ignore`: no LLM call at all.
+     A strict schema means no free-text parsing either way.
    - Not recruiter outreach, or classified `ignore`: stored as
      `status="ignored"` for dedupe/audit, with no draft.
    - Otherwise: apply the category's Gmail label (`Recruiter/KeepWarm`,
@@ -68,12 +74,15 @@ works against a fresh database or an existing one.
 - `DASHBOARD_AUTH_SECRET` (required) - random secret that signs the auth
   cookie (not the password itself - see `lib/auth.js`). Generate with e.g.
   `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
-- `ANTHROPIC_API_KEY` (required) - for classification.
+- `JEV_API_KEY` (required) - TypeSafe AI API key for Jev inbox sorting
+  (from console.typesafe.ai).
+- `ANTHROPIC_API_KEY` (required) - for detail extraction and research.
 - `GMAIL_CLIENT_ID`, `GMAIL_CLIENT_SECRET`, `GMAIL_REFRESH_TOKEN` (required)
   - Gmail OAuth credentials. Mint the refresh token with
   `scripts/authorize_gmail.py` (instructions in the script).
 - `ANTHROPIC_FAST_MODEL` / `ANTHROPIC_RESEARCH_MODEL` (optional) - override
   the two model tiers (defaults `claude-haiku-4-5` / `claude-sonnet-5`).
+- `JEV_MODEL` (optional) - pin a Jev version (default `jev-latest`).
 
 ## Running locally
 
@@ -85,6 +94,18 @@ npm test
 
 Put the variables above in `.env.local` (gitignored). The app creates its
 own tables on first request.
+
+## Evals
+
+`npm run eval:sorting` compares Jev against the pre-Jev Haiku quick pass
+(`evals/sorting/haikuBaseline.js`, a frozen copy) on a labeled set of
+synthetic emails (`evals/sorting/dataset.js`): outreach and category
+accuracy, high-interest recall, research escalations, latency, and cost
+per 1k emails at published prices. It calls live APIs, so it needs
+`JEV_API_KEY` and `ANTHROPIC_API_KEY` (the Haiku side is skipped without
+the latter) and is never part of `npm test`. `RUNS` (default 3) and
+`SYSTEMS` (default `jev,haiku`) are optional. Full results land in
+`evals/sorting/results/` (gitignored).
 
 ## Deployment
 

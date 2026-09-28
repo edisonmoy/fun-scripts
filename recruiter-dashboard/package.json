@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "vitest run"
+    "test": "vitest run",
+    "eval:sorting": "vitest run --config evals/vitest.config.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

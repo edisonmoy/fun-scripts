@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { FAST_MODEL, RESEARCH_FIT_THRESHOLD, RESEARCH_MODEL } from './config'
+import { sortThread } from './jev'
 
 export const CLASSIFY_TOOL_NAME = 'classify_recruiter_email'
 
@@ -100,6 +101,35 @@ export const CLASSIFY_TOOL = {
   }
 }
 
+// Fields Jev decides when sorting; everything else in CLASSIFY_TOOL is text
+// only an LLM can extract.
+const SORT_FIELDS = ['is_recruiter_outreach', 'category', 'fit_score']
+
+// Structured-output schema for the extraction pass: CLASSIFY_TOOL minus the
+// sorting fields, which Jev has already answered.
+export const EXTRACT_SCHEMA = {
+  type: 'object',
+  properties: Object.fromEntries(
+    Object.entries(CLASSIFY_TOOL.input_schema.properties).filter(
+      ([key]) => !SORT_FIELDS.includes(key)
+    )
+  ),
+  required: CLASSIFY_TOOL.input_schema.required.filter((key) => !SORT_FIELDS.includes(key)),
+  additionalProperties: false,
+}
+
+// Details stored for mail Jev sorts as ignore: no reply is drafted, so no
+// LLM call is spent extracting anything.
+const NO_DETAILS = {
+  company: null,
+  role: null,
+  seniority: null,
+  comp: null,
+  location_or_remote: null,
+  summary: null,
+  rationale: null,
+}
+
 function preferencesPrompt(preferences) {
   return (
     "Edison's stated preferences:\n" +
@@ -118,15 +148,16 @@ function preferencesPrompt(preferences) {
   )
 }
 
-// First pass: judge from the email text alone.
-function quickSystemPrompt(preferences) {
+// Extraction pass: the sorting decision is already made, so the model only
+// pulls out details and names the deciding factor.
+function extractSystemPrompt(preferences, sorted) {
   return (
-    "You are triaging recruiter/job-outreach emails on Edison's behalf. Classify " +
-    'the email thread in the message.\n\n' +
-    preferencesPrompt(preferences) +
-    '\n\nJudge from the email text alone. If the company might plausibly be in ' +
-    "the target areas but the email is too vague to tell, lean toward a higher " +
-    'fit_score so it gets a closer look rather than being dismissed.'
+    "You are triaging recruiter/job-outreach emails on Edison's behalf. The email " +
+    `thread in the message has already been sorted as category=${sorted.category} ` +
+    `with fit_score=${sorted.fit_score} (0-100). Extract the details of the ` +
+    'opportunity from the email text alone, and give the rationale for that ' +
+    'sorting.\n\n' +
+    preferencesPrompt(preferences)
   )
 }
 
@@ -160,19 +191,20 @@ function userMessage(thread) {
   }
 }
 
-// Cheap pass: FAST_MODEL, no tools, structured output against the same
-// schema the classify tool uses.
-async function quickClassify(thread, preferences, client) {
+// Cheap pass: FAST_MODEL, no tools, structured output against
+// EXTRACT_SCHEMA. Jev's sorting fields always win over anything the model
+// might echo back.
+async function extractDetails(thread, preferences, sorted, client) {
   const response = await client.messages.create({
     model: FAST_MODEL,
     max_tokens: 1024,
-    system: quickSystemPrompt(preferences),
-    output_config: { format: { type: 'json_schema', schema: CLASSIFY_TOOL.input_schema } },
+    system: extractSystemPrompt(preferences, sorted),
+    output_config: { format: { type: 'json_schema', schema: EXTRACT_SCHEMA } },
     messages: [userMessage(thread)],
   })
   const text = response.content.find((b) => b.type === 'text')?.text
-  if (!text) throw new Error(`classifier: no quick result (stop_reason=${response.stop_reason})`)
-  return JSON.parse(text)
+  if (!text) throw new Error(`classifier: no extraction result (stop_reason=${response.stop_reason})`)
+  return { ...JSON.parse(text), ...sorted }
 }
 
 // Research pass: RESEARCH_MODEL with one web search available. tool_choice
@@ -226,10 +258,10 @@ async function researchClassify(thread, preferences, client) {
   throw new Error('classifier: model did not return a classify_recruiter_email tool call')
 }
 
-export function needsResearch(quick) {
+export function needsResearch(sorted) {
   return (
-    quick.is_recruiter_outreach &&
-    (quick.category === 'high_interest' || (quick.fit_score ?? 0) >= RESEARCH_FIT_THRESHOLD)
+    sorted.is_recruiter_outreach &&
+    (sorted.category === 'high_interest' || (sorted.fit_score ?? 0) >= RESEARCH_FIT_THRESHOLD)
   )
 }
 
@@ -237,17 +269,23 @@ export function needsResearch(quick) {
 // preferences row. Returns an object matching CLASSIFY_TOOL's input schema;
 // its `comp` field is LLM-inferred - a hint, not a fact.
 //
-// Most recruiter mail is ordinary keep-warm outreach, so every email first
-// gets a cheap text-only pass. Only likely high-interest ones pay for the
-// research pass, whose result replaces the quick one. If research fails,
-// the quick result stands rather than losing the email.
-export async function classify(thread, preferences, client = new Anthropic()) {
-  const quick = await quickClassify(thread, preferences, client)
-  if (!needsResearch(quick)) return quick
-  try {
-    return await researchClassify(thread, preferences, client)
-  } catch (err) {
-    console.error(`research pass failed, keeping quick classification: ${err.message}`)
-    return quick
+// Every email is sorted by Jev (see jev.js), which is far cheaper and
+// faster than an LLM. Likely high-interest mail then pays for the research
+// pass, whose result replaces Jev's. Other mail that gets a reply gets the
+// cheap extraction pass for the details its draft and dashboard row need.
+// Mail sorted as ignore never reaches an LLM. If research fails, Jev's
+// sorting stands with extracted details rather than losing the email.
+export async function classify(thread, preferences, { client, fetchImpl } = {}) {
+  const sorted = await sortThread(thread, preferences, fetchImpl)
+  const anthropic = () => client ?? (client = new Anthropic())
+
+  if (needsResearch(sorted)) {
+    try {
+      return await researchClassify(thread, preferences, anthropic())
+    } catch (err) {
+      console.error(`research pass failed, keeping Jev sorting: ${err.message}`)
+    }
   }
+  if (sorted.category === 'ignore') return { ...NO_DETAILS, ...sorted }
+  return extractDetails(thread, preferences, sorted, anthropic())
 }
