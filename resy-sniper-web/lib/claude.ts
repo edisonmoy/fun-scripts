@@ -7,7 +7,14 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 
-const MODEL = "claude-opus-5";
+// A small, well-specified extraction - the fast model handles it, and the
+// validation on BookingCriteriaSchema rejects anything malformed rather than
+// letting it through. Keep in lockstep with resy-sniper/request_parser.py.
+const MODEL = "claude-haiku-4-5";
+
+// 24h zero-padded "HH:MM". inTimeWindow() compares these as strings, so
+// "7:00" or "19:00:00" would silently match the wrong slots - reject them.
+const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 const DAY_NAMES = [
   "Monday",
@@ -33,14 +40,18 @@ const SYSTEM_PROMPT =
   "single date, a neighborhood preference, a budget - so a human reviews it " +
   "rather than it being silently dropped.";
 
-export const BookingCriteriaSchema = z.object({
-  party_size: z.number().int(),
-  days_of_week: z.array(z.enum(DAY_NAMES)),
-  time_window_start: z.string(),
-  time_window_end: z.string(),
-  lookahead_weeks: z.number().int(),
-  notes: z.string(),
-});
+export const BookingCriteriaSchema = z
+  .object({
+    party_size: z.number().int().min(1).max(20),
+    days_of_week: z.array(z.enum(DAY_NAMES)).min(1),
+    time_window_start: z.string().regex(HH_MM),
+    time_window_end: z.string().regex(HH_MM),
+    lookahead_weeks: z.number().int().min(1).max(52),
+    notes: z.string(),
+  })
+  .refine((c) => c.time_window_start <= c.time_window_end, {
+    message: "time_window_start must not be after time_window_end",
+  });
 
 export type BookingCriteria = z.infer<typeof BookingCriteriaSchema>;
 

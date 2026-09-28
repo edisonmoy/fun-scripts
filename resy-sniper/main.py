@@ -132,7 +132,13 @@ def build_watches():
             logger.info("[%s] already booked: %s - skipping", target.key, target.booking)
             continue
 
-        criteria = request_parser.parse(target.request)
+        # One unparseable request must not take down every other target's
+        # watch - skip it (the log says why) and keep going.
+        try:
+            criteria = request_parser.parse(target.request)
+        except Exception:
+            logger.exception("[%s] could not parse request - skipping this target", target.key)
+            continue
         logger.info("[%s] watching: %s", target.key, criteria)
 
         venue_id = target.venue_id or resy_api.find_venue(target.venue_name)

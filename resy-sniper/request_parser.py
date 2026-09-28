@@ -8,11 +8,18 @@ from datetime import date, timedelta
 from typing import List, Literal
 
 import anthropic
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 logger = logging.getLogger(__name__)
 
-MODEL = "claude-opus-5"
+# A small, well-specified extraction - the fast model handles it, and the
+# validation on BookingCriteria rejects anything malformed rather than
+# letting it through. Keep in lockstep with resy-sniper-web/lib/claude.ts.
+MODEL = "claude-haiku-4-5"
+
+# 24h zero-padded "HH:MM". in_time_window() compares these as strings, so
+# "7:00" or "19:00:00" would silently match the wrong slots - reject them.
+HH_MM_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
 
 WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 _WEEKDAY_INDEX = {name: i for i, name in enumerate(WEEKDAYS)}
@@ -36,12 +43,18 @@ SYSTEM_PROMPT = (
 
 
 class BookingCriteria(BaseModel):
-    party_size: int
-    days_of_week: List[DayName]
-    time_window_start: str
-    time_window_end: str
-    lookahead_weeks: int
+    party_size: int = Field(ge=1, le=20)
+    days_of_week: List[DayName] = Field(min_length=1)
+    time_window_start: str = Field(pattern=HH_MM_PATTERN)
+    time_window_end: str = Field(pattern=HH_MM_PATTERN)
+    lookahead_weeks: int = Field(ge=1, le=52)
     notes: str
+
+    @model_validator(mode="after")
+    def _window_in_order(self):
+        if self.time_window_start > self.time_window_end:
+            raise ValueError("time_window_start must not be after time_window_end")
+        return self
 
     def candidate_dates(self, today=None):
         """ISO date strings for every matching weekday within the lookahead
