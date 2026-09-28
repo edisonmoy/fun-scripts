@@ -35,13 +35,23 @@ function quickSystemPrompt(preferences) {
   )
 }
 
-// Returns {result, usage} so the eval can price each call.
-export async function haikuQuickClassify(thread, preferences, client) {
+// Returns {result, usage} so the eval can price each call. `model` and
+// `effort` let the same prompt run on other Claude models for comparison;
+// the defaults are exactly the production Haiku call.
+export async function haikuQuickClassify(
+  thread,
+  preferences,
+  client,
+  { model = FAST_MODEL, effort, maxTokens = 1024 } = {}
+) {
   const response = await client.messages.create({
-    model: FAST_MODEL,
-    max_tokens: 1024,
+    model,
+    max_tokens: maxTokens,
     system: quickSystemPrompt(preferences),
-    output_config: { format: { type: 'json_schema', schema: CLASSIFY_TOOL.input_schema } },
+    output_config: {
+      format: { type: 'json_schema', schema: CLASSIFY_TOOL.input_schema },
+      ...(effort ? { effort } : {}),
+    },
     messages: [
       {
         role: 'user',

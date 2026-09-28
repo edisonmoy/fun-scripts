@@ -1,6 +1,7 @@
 // Jev vs the old Haiku quick pass on the sorting step. Run with
 //   JEV_API_KEY=... ANTHROPIC_API_KEY=... npm run eval:sorting
-// Optional: RUNS (default 3), SYSTEMS (default "jev,haiku").
+// Optional: RUNS (default 3), SYSTEMS (default "jev,haiku"; also
+// "sonnet", "opus").
 //
 // Both sides run the real production code paths: Jev through sortThread,
 // and the new pipeline's follow-up Haiku extraction through classify().
@@ -61,12 +62,21 @@ async function runJev(c) {
   return { case: c, ...row, usage, costUsd: costUsd(usage, PRICES.jev) }
 }
 
-async function runHaiku(c, client) {
+// Claude systems all run the frozen pre-Jev quick-pass prompt. haiku is
+// the exact production call; sonnet/opus use low effort (thinking stays on,
+// as recommended over disabling it) with room for it in max_tokens.
+const CLAUDE_SYSTEMS = {
+  haiku: {},
+  sonnet: { model: 'claude-sonnet-5', effort: 'low', maxTokens: 4096 },
+  opus: { model: 'claude-opus-5', effort: 'low', maxTokens: 4096 },
+}
+
+async function runClaude(system, c, client) {
   const row = await timed(async () => {
-    const { result, usage } = await haikuQuickClassify(c, PREFERENCES, client)
+    const { result, usage } = await haikuQuickClassify(c, PREFERENCES, client, CLAUDE_SYSTEMS[system])
     return { prediction: result, usage }
   })
-  return { case: c, ...row, costUsd: costUsd(row.usage, PRICES.haiku) }
+  return { case: c, ...row, costUsd: costUsd(row.usage, PRICES[system]) }
 }
 
 // Cost of the Haiku extraction pass the Jev pipeline adds for mail that
@@ -109,13 +119,14 @@ it(
     const anthropic = hasAnthropicKey ? new Anthropic() : null
 
     for (const system of SYSTEMS) {
-      if (system === 'haiku' && !anthropic) {
-        console.warn('Skipping haiku: no ANTHROPIC_API_KEY set.')
+      if (system !== 'jev' && !(system in CLAUDE_SYSTEMS)) throw new Error(`unknown system ${system}`)
+      if (system !== 'jev' && !anthropic) {
+        console.warn(`Skipping ${system}: no ANTHROPIC_API_KEY set.`)
         continue
       }
       runs[system] = []
       for (let r = 0; r < RUNS; r++) {
-        const fn = system === 'jev' ? runJev : (c) => runHaiku(c, anthropic)
+        const fn = system === 'jev' ? runJev : (c) => runClaude(system, c, anthropic)
         runs[system].push(await mapLimit(CASES, CONCURRENCY, fn))
       }
     }
@@ -157,7 +168,9 @@ it(
       }
     }
     if (summary.jev) summary.jev.pipelineCostPer1kEmailsUsd = jevPipelinePer1k
-    if (summary.haiku) summary.haiku.pipelineCostPer1kEmailsUsd = summary.haiku.sortCostPer1kEmailsUsd
+    for (const system of Object.keys(CLAUDE_SYSTEMS)) {
+      if (summary[system]) summary[system].pipelineCostPer1kEmailsUsd = summary[system].sortCostPer1kEmailsUsd
+    }
 
     const rows = [
       ['Outreach accuracy', 'outreachAccuracy', 'pct'],

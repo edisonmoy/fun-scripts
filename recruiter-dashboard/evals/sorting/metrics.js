@@ -4,6 +4,8 @@ import { needsResearch } from '../../lib/triage/classifier'
 export const PRICES = {
   jev: { input: 0.042, output: 0 },
   haiku: { input: 1.0, output: 5.0 },
+  sonnet: { input: 2.0, output: 10.0 },
+  opus: { input: 5.0, output: 25.0 },
 }
 
 export const CATEGORIES = ['ignore', 'keep_warm', 'high_interest']
