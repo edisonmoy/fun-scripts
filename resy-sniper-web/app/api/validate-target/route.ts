@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { BookingCriteria, candidateDates, inTimeWindow, parseRequest } from "@/lib/claude";
-import { findSlots, findVenue, getSlotDetails, ResolvedVenue, slotTime } from "@/lib/resy";
+import { findSlots, getSlotDetails, slotTime } from "@/lib/resy";
+import { resolveVenue, ResolvedVenueResult } from "@/lib/venue";
+import type { IdentifiedRestaurant } from "@/lib/venueMatch";
+
+// Venue resolution does a web search first - allow well past the default.
+export const maxDuration = 60;
 
 /** Probes a handful of upcoming candidate dates for a slot matching the
  * criteria's time window, and if one exists, fetches its cancellation
@@ -49,12 +54,13 @@ export async function POST(req: NextRequest) {
   }
 
   const [venueResult, criteriaResult] = await Promise.allSettled([
-    findVenue(venue_name),
+    resolveVenue(venue_name),
     parseRequest(requestText),
   ]);
 
   const body: {
-    venue?: ResolvedVenue;
+    venue?: ResolvedVenueResult;
+    identified?: IdentifiedRestaurant;
     venue_error?: string;
     criteria?: BookingCriteria;
     criteria_error?: string;
@@ -63,9 +69,11 @@ export async function POST(req: NextRequest) {
   } = {};
 
   if (venueResult.status === "fulfilled") {
-    body.venue = venueResult.value;
+    body.venue = venueResult.value.venue;
+    body.identified = venueResult.value.identified;
   } else {
-    body.venue_error = String(venueResult.reason);
+    const reason = venueResult.reason;
+    body.venue_error = reason instanceof Error ? reason.message : String(reason);
   }
 
   if (criteriaResult.status === "fulfilled") {

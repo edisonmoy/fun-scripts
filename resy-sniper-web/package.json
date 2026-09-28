@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "vitest run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.126.0",
@@ -19,6 +20,8 @@
     "@types/node": "22.10.5",
     "@types/react": "19.1.8",
     "@types/react-dom": "19.1.6",
-    "typescript": "5.7.3"
+    "typescript": "5.7.3",
+    "vite": "6.4.1",
+    "vitest": "5.0.2"
   }
 }
