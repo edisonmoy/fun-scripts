@@ -7,6 +7,7 @@ import type { Target } from "@/lib/github";
 interface ValidationResult {
   venue?: { id: number; name: string; neighborhood: string | null; address: string | null };
   venue_error?: string;
+  identified?: { name: string; notes: string };
   criteria?: {
     party_size: number;
     days_of_week: string[];
@@ -83,8 +84,11 @@ function ValidationPanel({ result }: { result: ValidationResult }) {
           {result.venue.address ? ` — ${result.venue.address}` : ""}
         </div>
       )}
+      {result.venue && result.identified?.notes && (
+        <div className="validation-line">{result.identified.notes}</div>
+      )}
       {result.venue_error && (
-        <div className="validation-line error">✗ Venue not found: {result.venue_error}</div>
+        <div className="validation-line error">✗ Venue: {result.venue_error}</div>
       )}
       {result.criteria && (
         <div className="validation-line success">
@@ -501,8 +505,11 @@ export default function DashboardPage() {
                     {result.venue.address ? ` — ${result.venue.address}` : ""}
                   </div>
                 )}
+                {result.venue && result.identified?.notes && (
+                  <div className="validation-line">{result.identified.notes}</div>
+                )}
                 {result.venue_error && (
-                  <div className="validation-line error">✗ Venue not found: {result.venue_error}</div>
+                  <div className="validation-line error">✗ Venue: {result.venue_error}</div>
                 )}
                 {result.criteria && (
                   <div className="validation-line success">

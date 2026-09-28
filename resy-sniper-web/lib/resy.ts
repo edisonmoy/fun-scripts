@@ -3,6 +3,8 @@
 // webapp's "validate a target" and "cancel a booked reservation" flows.
 // Kept minimal (only what the webapp needs) rather than a full port.
 
+import type { VenueCandidate } from "./venueMatch";
+
 const BASE_URL = "https://api.resy.com";
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
@@ -24,13 +26,6 @@ function resyHeaders(): Record<string, string> {
     Referer: "https://resy.com/",
     "X-Origin": "https://resy.com",
   };
-}
-
-export interface ResolvedVenue {
-  id: number;
-  name: string;
-  neighborhood: string | null;
-  address: string | null; // "38 Norman Ave, Brooklyn, NY 11222" - identifiable, not just an id
 }
 
 /** Full venue detail - needed for a street address, which venue search
@@ -55,42 +50,41 @@ async function getVenueDetail(id: number): Promise<{
   return resp.json();
 }
 
-function formatAddress(loc?: {
-  address_1?: string;
-  locality?: string;
-  region?: string;
-  postal_code?: string;
-}): string | null {
-  if (!loc) return null;
-  const parts = [loc.address_1, loc.locality, loc.region].filter(Boolean);
-  if (parts.length === 0) return null;
-  return loc.postal_code ? `${parts.join(", ")} ${loc.postal_code}` : parts.join(", ");
-}
-
-export async function findVenue(name: string): Promise<ResolvedVenue> {
+/** Resy's venue search, returning up to `limit` hits with full addresses
+ * (search results alone carry no street address). Resy matches words in
+ * venue names worldwide - it doesn't understand places - so callers should
+ * pass a clean restaurant name, never raw user input with location words
+ * in it (see lib/venue.ts).
+ */
+export async function searchVenues(query: string, limit = 5): Promise<VenueCandidate[]> {
   const resp = await fetch(`${BASE_URL}/3/venuesearch/search`, {
     method: "POST",
     headers: { ...resyHeaders(), "Content-Type": "application/json" },
-    body: JSON.stringify({ query: name, per_page: 5 }),
+    body: JSON.stringify({ query, per_page: limit }),
   });
   if (!resp.ok) {
     throw new Error(`Resy venue search failed (${resp.status}): ${await resp.text()}`);
   }
   const data = await resp.json();
-  const hits = data?.search?.hits ?? [];
-  if (hits.length === 0) {
-    throw new Error(`No Resy venue found for "${name}"`);
-  }
-  const hit = hits[0];
-  const id = hit.id.resy;
+  const hits: { id: { resy: number }; name: string; neighborhood?: string }[] =
+    (data?.search?.hits ?? []).slice(0, limit);
 
-  const detail = await getVenueDetail(id);
-  return {
-    id,
-    name: detail.name ?? hit.name,
-    neighborhood: detail.location?.neighborhood ?? hit.neighborhood ?? null,
-    address: formatAddress(detail.location),
-  };
+  return Promise.all(
+    hits.map(async (hit) => {
+      const id = hit.id.resy;
+      const detail = await getVenueDetail(id).catch(() => null);
+      const loc = detail?.location;
+      return {
+        id,
+        name: detail?.name ?? hit.name,
+        neighborhood: loc?.neighborhood ?? hit.neighborhood ?? null,
+        street_address: loc?.address_1 ?? null,
+        locality: loc?.locality ?? null,
+        region: loc?.region ?? null,
+        postal_code: loc?.postal_code ?? null,
+      };
+    })
+  );
 }
 
 export interface ResySlot {
