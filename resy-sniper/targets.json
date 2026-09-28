@@ -1,5 +1,14 @@
 [
   {
+    "key": "weera-thai-chinatown-thursday",
+    "venue_name": "lei chinatown wine bar",
+    "request": "thursday 7:30-8:00pm for 4 people",
+    "venue_id": 52564,
+    "venue_display": "Weera Thai Chinatown — 4276 Spring Mountain Rd #105, Las Vegas, NV 89102",
+    "enabled": true,
+    "dry_run": false
+  },
+  {
     "key": "double chicken",
     "venue_name": "double chicken please",
     "request": "any friday or saturday around 7pm to 9pm for 2 people.",
