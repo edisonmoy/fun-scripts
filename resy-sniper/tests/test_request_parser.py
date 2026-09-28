@@ -1,6 +1,9 @@
 from datetime import date
 from unittest.mock import MagicMock, patch
 
+import pytest
+from pydantic import ValidationError
+
 import request_parser
 from request_parser import BookingCriteria
 
@@ -36,6 +39,30 @@ def test_in_time_window():
     assert criteria.in_time_window("16:59") is False
     assert criteria.in_time_window("21:00") is True
     assert criteria.in_time_window("21:01") is False
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"time_window_start": "7:00"},  # not zero-padded - breaks string compare
+        {"time_window_end": "19:00:00"},
+        {"time_window_start": "7pm"},
+        {"time_window_end": "24:00"},
+        {"time_window_start": "21:00", "time_window_end": "17:00"},  # reversed
+        {"party_size": 0},
+        {"party_size": 21},
+        {"lookahead_weeks": 0},
+        {"days_of_week": []},
+    ],
+)
+def test_rejects_criteria_that_would_silently_misbehave(overrides):
+    with pytest.raises(ValidationError):
+        _criteria(**overrides)
+
+
+def test_accepts_boundary_values():
+    _criteria(time_window_start="00:00", time_window_end="23:59", party_size=20, lookahead_weeks=52)
+    _criteria(time_window_start="19:00", time_window_end="19:00", party_size=1, lookahead_weeks=1)
 
 
 def test_parse_calls_messages_parse_with_expected_shape(monkeypatch):

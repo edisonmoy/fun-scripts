@@ -157,17 +157,20 @@ Rather than separate day/time-window fields, each target's `request` in
 - `"Dinner for 4 any night this week, as early as we can get in"`
 - `"Anniversary dinner for 2, ideally a Friday or Saturday in the next month, any time after 6pm"`
 
-`request_parser.parse()` sends this to Claude (`claude-opus-5`) once per
+`request_parser.parse()` sends this to Claude (`claude-haiku-4-5`) once per
 target at startup and gets back structured JSON (`party_size`,
 `days_of_week`, `time_window_start`/`_end`, `lookahead_weeks`, plus a
 free-text `notes` field for anything it couldn't represent structurally -
-e.g. "anniversary" or a specific single date). **Check the logged `notes`
-field** the first time you add a new target - it's how you catch a
-misparse before the bot starts polling on the wrong criteria. The
-dashboard's "Check venue & request" button runs this same parse (plus
-venue resolution) before you save, so you can catch a misparse - wrong
-party size especially, the one field where a mistake is expensive -
-without waiting for a restart.
+e.g. "anniversary" or a specific single date). The result is validated
+(zero-padded `HH:MM` times with start not after end, party size 1-20,
+1-52 weeks, at least one day); a target whose request fails that is
+skipped with an error in the log, and the other targets keep running.
+**Check the logged `notes` field** the first time you add a new target -
+it's how you catch a misparse before the bot starts polling on the wrong
+criteria. The dashboard's "Check venue & request" button runs this same
+parse (plus venue resolution) before you save, so you can catch a
+misparse - wrong party size especially, the one field where a mistake is
+expensive - without waiting for a restart.
 
 ## 2. Run it locally (dry run first)
 

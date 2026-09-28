@@ -118,3 +118,19 @@ def test_try_book_in_book_mode_books_and_records():
     mock_record.assert_called_once_with("test-target", "2026-09-19", "19:00", 2, 999)
     mock_email.assert_called_once()
     assert "notify mode" not in mock_email.call_args.kwargs["subject"].lower()
+
+
+def test_build_watches_skips_a_target_whose_request_fails_to_parse():
+    good = _target(key="good", request="good request", venue_id=1)
+    bad = _target(key="bad", request="bad request", venue_id=2)
+
+    def fake_parse(request):
+        if request == "bad request":
+            raise ValueError("time_window_start must not be after time_window_end")
+        return _criteria()
+
+    with patch("main.targets_module.load", return_value=[bad, good]), \
+         patch("main.request_parser.parse", side_effect=fake_parse):
+        watches = main.build_watches()
+
+    assert [w.target.key for w in watches] == ["good"]
