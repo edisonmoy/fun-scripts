@@ -1,8 +1,10 @@
-// Classification cost tiers. Every email gets one cheap pass with
-// FAST_MODEL (no web search); only likely high-interest ones escalate to
-// RESEARCH_MODEL with a single web search. Reply text never uses a model -
-// see draftWriter.js. Overridable so a model can be pinned without a code
-// change.
+// Classification cost tiers. Every email is sorted by JEV_MODEL (recruiter
+// or not, category, fit score - see jev.js); likely high-interest ones
+// escalate to RESEARCH_MODEL with a single web search, and other mail that
+// gets a reply gets one cheap FAST_MODEL pass to extract its details. Reply
+// text never uses a model - see draftWriter.js. Overridable so a model can
+// be pinned without a code change.
+export const JEV_MODEL = process.env.JEV_MODEL || 'jev-latest'
 export const FAST_MODEL = process.env.ANTHROPIC_FAST_MODEL || 'claude-haiku-4-5'
 export const RESEARCH_MODEL = process.env.ANTHROPIC_RESEARCH_MODEL || 'claude-sonnet-5'
 
