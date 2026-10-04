@@ -158,6 +158,7 @@ export default function DashboardPage() {
   const [liveReservations, setLiveReservations] = useState<LiveReservation[] | null>(null);
   const [reservationsError, setReservationsError] = useState<string | null>(null);
   const [cancellingKey, setCancellingKey] = useState<string | null>(null);
+  const [removingKey, setRemovingKey] = useState<string | null>(null);
   const router = useRouter();
 
   async function load() {
@@ -196,10 +197,53 @@ export default function DashboardPage() {
     setTargets(next);
   }
 
-  function removeTarget(index: number) {
+  /** Commits the removal immediately. Based on the last-saved list, not the
+   * page's, so unsaved edits on other cards aren't committed unvalidated
+   * along with it - and are kept on the page afterwards. */
+  async function removeTarget(index: number) {
     if (!targets) return;
-    if (!confirm(`Remove target "${targets[index].key}"?`)) return;
-    setTargets(targets.filter((_, i) => i !== index));
+    const t = targets[index];
+    if (!confirm(`Remove target "${t.venue_name || t.key}"?`)) return;
+    const dropLocally = () => setTargets((prev) => prev?.filter((x) => x.key !== t.key) ?? prev);
+
+    if (!serverTargets?.some((x) => x.key === t.key)) {
+      dropLocally(); // never saved - nothing to commit
+      return;
+    }
+
+    setRemovingKey(t.key);
+    try {
+      const saveRes = await fetch("/api/targets", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targets: serverTargets.filter((x) => x.key !== t.key),
+          sha,
+          message: `Remove target "${t.key}" via web UI`,
+        }),
+      });
+      const saveData = await readJson(saveRes);
+      if (!saveRes.ok) throw new Error(saveData.error || `HTTP ${saveRes.status}`);
+
+      dropLocally();
+      setEditingKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(t.key);
+        return next;
+      });
+      // Pick up the new sha for the next save without discarding the
+      // page's other unsaved edits, which load() would.
+      const res = await fetch("/api/targets");
+      const data = await readJson(res);
+      if (res.ok) {
+        setServerTargets(data.targets);
+        setSha(data.sha);
+      }
+    } catch (err) {
+      alert(`Couldn't remove "${t.key}": ${err instanceof Error ? err.message : err}`);
+    } finally {
+      setRemovingKey(null);
+    }
   }
 
   function addTarget() {
@@ -442,8 +486,8 @@ export default function DashboardPage() {
               {result && <ValidationPanel result={result} />}
               <div className="card-actions">
                 <div className="card-actions-left">
-                  <button className="danger" onClick={() => removeTarget(i)}>
-                    Remove
+                  <button className="danger" onClick={() => removeTarget(i)} disabled={removingKey === t.key}>
+                    {removingKey === t.key ? "Removing..." : "Remove"}
                   </button>
                 </div>
                 <button onClick={() => editTarget(t.key)}>Edit</button>
@@ -575,8 +619,12 @@ export default function DashboardPage() {
             <div className="card-actions">
               <div className="card-actions-left">
                 {!isNew && <button onClick={() => cancelEdit(i)}>Cancel</button>}
-                <button className="danger" onClick={() => removeTarget(i)}>
-                  Remove
+                <button
+                  className="danger"
+                  onClick={() => removeTarget(i)}
+                  disabled={removingKey === t.key || checkingKey === t.key}
+                >
+                  {removingKey === t.key ? "Removing..." : "Remove"}
                 </button>
               </div>
               <button className="primary" onClick={() => checkAndSave(i)} disabled={checkingKey === t.key}>
