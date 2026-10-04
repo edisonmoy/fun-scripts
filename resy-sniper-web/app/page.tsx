@@ -14,6 +14,7 @@ interface ValidationResult {
     time_window_start: string;
     time_window_end: string;
     lookahead_weeks: number;
+    specific_dates: string[];
     notes: string;
   };
   criteria_error?: string;
@@ -86,6 +87,23 @@ async function readJson(res: Response): Promise<{ error?: string } & Record<stri
   }
 }
 
+function describeDates(c: NonNullable<ValidationResult["criteria"]>): string {
+  if (c.specific_dates?.length) {
+    return `only ${c.specific_dates
+      .map((d) =>
+        new Date(`${d}T00:00:00Z`).toLocaleDateString("en-US", {
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          timeZone: "UTC",
+        })
+      )
+      .join(", ")}`;
+  }
+  const days = c.days_of_week.length === 7 ? "any day" : c.days_of_week.join("/");
+  return `${days}, next ${c.lookahead_weeks} weeks`;
+}
+
 function ValidationPanel({ result }: { result: ValidationResult }) {
   return (
     <div className="validation-panel">
@@ -103,9 +121,8 @@ function ValidationPanel({ result }: { result: ValidationResult }) {
       )}
       {result.criteria && (
         <div className="validation-line success">
-          ✓ Parsed: party of {result.criteria.party_size},{" "}
-          {result.criteria.days_of_week.join("/")}, {result.criteria.time_window_start}–
-          {result.criteria.time_window_end}, next {result.criteria.lookahead_weeks} weeks
+          ✓ Parsed: party of {result.criteria.party_size}, {describeDates(result.criteria)},{" "}
+          {result.criteria.time_window_start}–{result.criteria.time_window_end}
           {result.criteria.notes && <div className="notes-hint">Note: {result.criteria.notes}</div>}
         </div>
       )}
@@ -573,48 +590,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {result && (
-              <div className="validation-panel">
-                {result.venue && (
-                  <div className="validation-line success">
-                    ✓ Venue: {result.venue.name}
-                    {result.venue.address ? ` — ${result.venue.address}` : ""}
-                  </div>
-                )}
-                {result.venue && result.identified?.notes && (
-                  <div className="validation-line">{result.identified.notes}</div>
-                )}
-                {result.venue_error && (
-                  <div className="validation-line error">✗ Venue: {result.venue_error}</div>
-                )}
-                {result.criteria && (
-                  <div className="validation-line success">
-                    ✓ Parsed: party of {result.criteria.party_size},{" "}
-                    {result.criteria.days_of_week.join("/")}, {result.criteria.time_window_start}–
-                    {result.criteria.time_window_end}, next {result.criteria.lookahead_weeks} weeks
-                    {result.criteria.notes && (
-                      <div className="notes-hint">Note: {result.criteria.notes}</div>
-                    )}
-                  </div>
-                )}
-                {result.criteria_error && (
-                  <div className="validation-line error">
-                    ✗ Couldn&apos;t parse request: {result.criteria_error}
-                  </div>
-                )}
-                {result.venue && result.criteria && (
-                  <div className="validation-line">
-                    {result.cancellation_preview && result.cancellation_preview.length > 0 ? (
-                      <>
-                        <strong>Cancellation terms preview:</strong> {result.cancellation_preview[0]}
-                      </>
-                    ) : (
-                      <span className="notes-hint">{result.cancellation_preview_note}</span>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+            {result && <ValidationPanel result={result} />}
 
             <div className="card-actions">
               <div className="card-actions-left">

@@ -15,6 +15,7 @@ def _criteria(**overrides):
         time_window_start="17:00",
         time_window_end="21:00",
         lookahead_weeks=8,
+        specific_dates=[],
         notes="",
     )
     defaults.update(overrides)
@@ -31,6 +32,21 @@ def test_candidate_dates_multiple_weekdays_sorted():
     criteria = _criteria(days_of_week=["Friday", "Saturday"], lookahead_weeks=1)
     dates = criteria.candidate_dates(today=date(2026, 9, 14))  # a Monday
     assert dates == ["2026-09-18", "2026-09-19"]
+
+
+def test_candidate_dates_specific_dates_override_weekdays():
+    criteria = _criteria(
+        days_of_week=["Thursday", "Friday", "Saturday"],
+        specific_dates=["2026-10-24", "2026-10-22", "2026-10-23"],
+    )
+    dates = criteria.candidate_dates(today=date(2026, 10, 4))
+    assert dates == ["2026-10-22", "2026-10-23", "2026-10-24"]
+
+
+def test_candidate_dates_drops_past_specific_dates():
+    criteria = _criteria(specific_dates=["2026-10-22", "2026-10-23"])
+    assert criteria.candidate_dates(today=date(2026, 10, 23)) == ["2026-10-23"]
+    assert criteria.candidate_dates(today=date(2026, 10, 24)) == []
 
 
 def test_in_time_window():
@@ -53,6 +69,8 @@ def test_in_time_window():
         {"party_size": 21},
         {"lookahead_weeks": 0},
         {"days_of_week": []},
+        {"specific_dates": ["10/22"]},
+        {"specific_dates": ["2026-02-30"]},
     ],
 )
 def test_rejects_criteria_that_would_silently_misbehave(overrides):
@@ -76,12 +94,20 @@ def test_parse_calls_messages_parse_with_expected_shape(monkeypatch):
     fake_client.messages.parse.return_value = fake_response
 
     with patch("request_parser.anthropic.Anthropic", return_value=fake_client):
-        result = request_parser.parse("Saturday dinner for 2, flexible 5-9pm")
+        result = request_parser.parse(
+            "Saturday dinner for 2, flexible 5-9pm", today=date(2026, 10, 4)
+        )
 
     assert result is fake_criteria
     call_kwargs = fake_client.messages.parse.call_args.kwargs
     assert call_kwargs["model"] == request_parser.MODEL
     assert call_kwargs["output_format"] is BookingCriteria
     assert call_kwargs["messages"] == [
-        {"role": "user", "content": "Saturday dinner for 2, flexible 5-9pm"}
+        {
+            "role": "user",
+            "content": (
+                "Today is Sunday, 2026-10-04.\n\n"
+                "Request: Saturday dinner for 2, flexible 5-9pm"
+            ),
+        }
     ]
