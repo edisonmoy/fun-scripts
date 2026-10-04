@@ -34,8 +34,10 @@ class Watch:
         return config.DRY_RUN if self.target.dry_run is None else self.target.dry_run
 
 
-def find_target_slot(key, venue_id, criteria):
+def find_target_slot(key, venue_id, criteria, booked_days=frozenset()):
     """Check every candidate date in order; return (day, slot, all_failed).
+    Dates in booked_days are skipped - never two reservations on one day,
+    whichever targets they come from.
     day/slot are the first time-window-matching slot found, or None if
     nothing's open yet. all_failed is True when every single date errored
     (vs. legitimately having no availability) - the caller uses this to
@@ -44,7 +46,7 @@ def find_target_slot(key, venue_id, criteria):
     single date failing doesn't block checking the rest: one bad date
     shouldn't hide a real opening on a later one in the same round.
     """
-    dates = criteria.candidate_dates()
+    dates = [d for d in criteria.candidate_dates() if d not in booked_days]
     errors = 0
     for day in dates:
         try:
@@ -108,14 +110,19 @@ def try_book(watch, day, slot, payment_method_id):
             watch.key,
         )
 
-    alerts.send_email(
-        subject=f"Booked! {watch.target.venue_name} - {day}",
-        body=(
-            f"Booked {watch.target.venue_name} ({watch.key}) for {criteria.party_size} "
-            f"on {day} at {resy_api.slot_time(slot)}.\n\n"
-            f"Reservation id: {reservation_id}\n\nRaw response: {result}"
-        ),
-    )
+    # The reservation is real at this point - a failed email must not
+    # propagate, or the poll loop keeps watching and books a second time.
+    try:
+        alerts.send_email(
+            subject=f"Booked! {watch.target.venue_name} - {day}",
+            body=(
+                f"Booked {watch.target.venue_name} ({watch.key}) for {criteria.party_size} "
+                f"on {day} at {resy_api.slot_time(slot)}.\n\n"
+                f"Reservation id: {reservation_id}\n\nRaw response: {result}"
+            ),
+        )
+    except Exception:
+        logger.exception("[%s] booked but the confirmation email failed", watch.key)
     logger.info(
         "[%s] BOOKED %s %s - confirmation email sent", watch.key, day, resy_api.slot_time(slot)
     )
@@ -146,8 +153,17 @@ def build_watches():
     return watches
 
 
+def booked_days_from_targets():
+    """Days that already have a reservation from any target, booked in an
+    earlier run (github_sync records them in targets.json)."""
+    return {t.booking["day"] for t in targets_module.load() if t.booking}
+
+
 def main():
     watches = build_watches()
+    booked_days = booked_days_from_targets()
+    if booked_days:
+        logger.info("not booking again on already-booked days: %s", sorted(booked_days))
 
     payment_method_id = None
     if watches:
@@ -163,12 +179,16 @@ def main():
         any_target_all_failed = False
         for watch in watches:
             try:
-                day, slot, all_failed = find_target_slot(watch.key, watch.venue_id, watch.criteria)
+                day, slot, all_failed = find_target_slot(
+                    watch.key, watch.venue_id, watch.criteria, booked_days
+                )
                 any_target_all_failed = any_target_all_failed or all_failed
                 if slot:
                     logger.info("[%s] slot found: %s %s - attempting to book",
                                 watch.key, day, resy_api.slot_time(slot))
                     if try_book(watch, day, slot, payment_method_id):
+                        if not watch.dry_run:
+                            booked_days.add(day)  # later targets this round skip it too
                         continue  # booked - drop from the watch list
                 still_watching.append(watch)
             except Exception:
