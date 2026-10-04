@@ -95,6 +95,14 @@ booked drops out of the poll loop automatically; the process keeps
 running (idle) for any others still active, and picks up newly-added or
 re-enabled targets on the next restart/redeploy.
 
+**One reservation per day:** the bot won't book (or notify about) a date
+that already has a reservation - one it booked earlier (`booking` above),
+one booked this run by another target, or any upcoming reservation on
+your Resy account, including ones you made by hand. Resy is re-checked
+every 5 minutes and right before each booking. To let one target ignore
+this, say so in its request, e.g. "... even if I already have a
+reservation that day".
+
 ## 1. Get your Resy credentials (you're here)
 
 Two values, both from your own logged-in browser session - there's no

@@ -120,6 +120,20 @@ def get_default_payment_method_id():
     return None
 
 
+def upcoming_reservation_days():
+    """Days ("YYYY-MM-DD") with an upcoming reservation on the account -
+    including ones booked by hand on Resy, not just by this bot.
+    """
+    resp = requests.get(
+        f"{BASE_URL}/3/user/reservations",
+        headers=_headers(),
+        params={"type": "upcoming"},
+        timeout=10,
+    )
+    resp.raise_for_status()
+    return {r["day"] for r in resp.json().get("reservations", []) if r.get("day")}
+
+
 def book(book_token, payment_method_id=None):
     """Confirm a reservation. This is the one call that actually commits -
     everything above is read-only search/lookup. payment_method_id=None

@@ -47,9 +47,12 @@ const SYSTEM_PROMPT =
   "date without a year means its next occurrence on or after today - and " +
   "set days_of_week to those dates' weekdays; otherwise leave specific_dates " +
   'empty. Recurring phrasing ("any Friday", "Saturdays") is days_of_week, ' +
-  "not specific_dates. notes should flag anything you could not represent " +
-  "in the structured fields - a neighborhood preference, a budget - so a " +
-  "human reviews it rather than it being silently dropped.";
+  "not specific_dates. Set allow_same_day to true only if the request " +
+  "explicitly says it's fine to book even on a day that already has another " +
+  'reservation ("even if I have another reservation that day", "double ' +
+  'booking is ok"); otherwise false. notes should flag anything you could ' +
+  "not represent in the structured fields - a neighborhood preference, a " +
+  "budget - so a human reviews it rather than it being silently dropped.";
 
 function isRealDate(iso: string): boolean {
   const d = new Date(`${iso}T00:00:00Z`);
@@ -66,6 +69,8 @@ export const BookingCriteriaSchema = z
     // When non-empty, the only dates searched - days_of_week/lookahead_weeks
     // are ignored. Without this, "10/22-24" became "every day for 8 weeks".
     specific_dates: z.array(z.string().regex(ISO_DATE).refine(isRealDate, "not a real date")),
+    // Opts this target out of the bot's one-reservation-per-day rule.
+    allow_same_day: z.boolean(),
     notes: z.string(),
   })
   .refine((c) => c.time_window_start <= c.time_window_end, {

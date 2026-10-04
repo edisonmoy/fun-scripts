@@ -16,6 +16,7 @@ def _criteria(**overrides):
         time_window_end="21:00",
         lookahead_weeks=8,
         specific_dates=[],
+        allow_same_day=False,
         notes="",
     )
     defaults.update(overrides)

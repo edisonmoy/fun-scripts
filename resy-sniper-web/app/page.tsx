@@ -15,6 +15,7 @@ interface ValidationResult {
     time_window_end: string;
     lookahead_weeks: number;
     specific_dates: string[];
+    allow_same_day: boolean;
     notes: string;
   };
   criteria_error?: string;
@@ -123,6 +124,7 @@ function ValidationPanel({ result }: { result: ValidationResult }) {
         <div className="validation-line success">
           ✓ Parsed: party of {result.criteria.party_size}, {describeDates(result.criteria)},{" "}
           {result.criteria.time_window_start}–{result.criteria.time_window_end}
+          {result.criteria.allow_same_day && " (OK to book on a day you already have a reservation)"}
           {result.criteria.notes && <div className="notes-hint">Note: {result.criteria.notes}</div>}
         </div>
       )}

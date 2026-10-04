@@ -48,7 +48,11 @@ SYSTEM_PROMPT = (
     "date without a year means its next occurrence on or after today - and "
     "set days_of_week to those dates' weekdays; otherwise leave specific_dates "
     "empty. Recurring phrasing (\"any Friday\", \"Saturdays\") is days_of_week, "
-    "not specific_dates. notes should flag anything you could not represent "
+    "not specific_dates. Set allow_same_day to true only if the request "
+    "explicitly says it's fine to book even on a day that already has another "
+    "reservation (\"even if I have another reservation that day\", \"double "
+    "booking is ok\"); otherwise false. notes should flag anything you could "
+    "not represent "
     "in the structured fields - a neighborhood preference, a budget - so a "
     "human reviews it rather than it being silently dropped."
 )
@@ -65,6 +69,8 @@ class BookingCriteria(BaseModel):
     # Required (no default) so the model must always answer it - [] when the
     # request has no specific dates.
     specific_dates: List[Annotated[str, Field(pattern=ISO_DATE_PATTERN)]]
+    # Opts this target out of the bot's one-reservation-per-day rule.
+    allow_same_day: bool
     notes: str
 
     @model_validator(mode="after")

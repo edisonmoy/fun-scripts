@@ -12,6 +12,7 @@ def _criteria(**overrides):
         time_window_end="21:00",
         lookahead_weeks=2,
         specific_dates=[],
+        allow_same_day=False,
         notes="",
     )
     defaults.update(overrides)
@@ -166,16 +167,27 @@ def test_try_book_returns_the_booking_even_if_the_email_fails():
         assert main.try_book(watch, "2026-09-19", slot, payment_method_id=42) == 999
 
 
-def test_main_never_books_two_targets_on_the_same_day():
-    ugly_baby = _target(key="ugly-baby", venue_id=1, dry_run=False)
-    lei = _target(key="lei", venue_id=2, dry_run=False)
-    dates = ["2026-10-22", "2026-10-23", "2026-10-24"]
-    watches = [main.Watch(t, _criteria(specific_dates=dates), t.venue_id) for t in (ugly_baby, lei)]
+DATES = ["2026-10-22", "2026-10-23", "2026-10-24"]
+
+
+def _run_main(watches, resy_days=(), known=()):
+    """Runs main() with every target finding every date open; returns the
+    (key, day) bookings made. resy_days may be a list of sets, one per
+    upcoming_reservation_days() call."""
     booked = []
+    if isinstance(resy_days, list):
+        resy_calls = iter(resy_days)
+        last = [set()]
+
+        def fake_resy_days():
+            last[0] = next(resy_calls, last[0])
+            return last[0]
+    else:
+        def fake_resy_days():
+            return set(resy_days)
 
     def fake_find_target_slot(key, venue_id, criteria, booked_days):
-        # Both venues have every date open; the bot must spread them out.
-        day = next(d for d in dates if d not in booked_days)
+        day = next(d for d in DATES if d not in booked_days)
         return day, {"date": {"start": f"{day} 19:00:00"}}, False
 
     def fake_try_book(watch, day, slot, payment_method_id):
@@ -183,7 +195,8 @@ def test_main_never_books_two_targets_on_the_same_day():
         return 1
 
     with patch("main.build_watches", return_value=watches), \
-         patch("main.booked_days_from_targets", return_value=set()), \
+         patch("main.booked_days_from_targets", return_value=set(known)), \
+         patch("main.resy_api.upcoming_reservation_days", side_effect=fake_resy_days), \
          patch("main.find_target_slot", side_effect=fake_find_target_slot), \
          patch("main.try_book", side_effect=fake_try_book), \
          patch("main.resy_api.get_default_payment_method_id", return_value=42), \
@@ -192,8 +205,49 @@ def test_main_never_books_two_targets_on_the_same_day():
             main.main()
         except StopIteration:
             pass  # reached the idle loop
+    return booked
 
+
+def _watch(key, allow_same_day=False, dry_run=False):
+    target = _target(key=key, venue_id=1, dry_run=dry_run)
+    return main.Watch(target, _criteria(specific_dates=DATES, allow_same_day=allow_same_day), 1)
+
+
+def test_main_never_books_two_targets_on_the_same_day():
+    booked = _run_main([_watch("ugly-baby"), _watch("lei")])
     assert booked == [("ugly-baby", "2026-10-22"), ("lei", "2026-10-23")]
+
+
+def test_main_skips_days_with_a_reservation_made_by_hand_on_resy():
+    booked = _run_main([_watch("ugly-baby")], resy_days={"2026-10-22"})
+    assert booked == [("ugly-baby", "2026-10-23")]
+
+
+def test_main_rechecks_resy_right_before_booking():
+    # Nothing on Resy at the start of the round; a reservation for Oct 22
+    # appears by the time the slot is found - so the bot holds off.
+    booked = _run_main([_watch("ugly-baby")], resy_days=[set(), {"2026-10-22"}])
+    assert booked == []
+
+
+def test_allow_same_day_target_books_on_a_reserved_day_and_still_blocks_others():
+    booked = _run_main(
+        [_watch("lei", allow_same_day=True), _watch("ugly-baby")], resy_days={"2026-10-22"}
+    )
+    # lei opted out, so it takes Oct 22 despite the hand-made booking;
+    # ugly-baby skips Oct 22 as usual.
+    assert booked == [("lei", "2026-10-22"), ("ugly-baby", "2026-10-23")]
+
+
+def test_reserved_days_keeps_last_known_list_when_resy_fails():
+    reserved = main.ReservedDays({"2026-10-24"})
+    with patch("main.resy_api.upcoming_reservation_days", return_value={"2026-10-22"}):
+        reserved.refresh()
+    with patch("main.resy_api.upcoming_reservation_days", side_effect=RuntimeError("500")):
+        reserved.refresh(max_age=0)
+    assert "2026-10-22" in reserved  # from Resy, kept despite the failed refresh
+    assert "2026-10-24" in reserved  # from targets.json
+    assert "2026-10-23" not in reserved
 
 
 def test_main_respects_bookings_from_earlier_runs():

@@ -10,6 +10,7 @@ function criteria(overrides: Partial<BookingCriteria> = {}): BookingCriteria {
     time_window_end: "21:00",
     lookahead_weeks: 8,
     specific_dates: [],
+    allow_same_day: false,
     notes: "",
     ...overrides,
   };
@@ -44,6 +45,7 @@ describe("specific dates", () => {
   it("requires specific_dates in the schema sent to the API", () => {
     const schema = zodOutputFormat(BookingCriteriaSchema).schema as { required: string[] };
     expect(schema.required).toContain("specific_dates");
+    expect(schema.required).toContain("allow_same_day");
   });
 
   it("tells the model today's New York date, matching the bot's format", () => {

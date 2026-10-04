@@ -149,3 +149,25 @@ def test_book_defaults_to_no_card_on_file(monkeypatch):
 
     sent_data = mock_post.call_args.kwargs["data"]
     assert sent_data["struct_payment_method"] == '{"id": -1}'
+
+
+def test_upcoming_reservation_days(monkeypatch):
+    import config
+    monkeypatch.setattr(config, "AUTH_TOKEN", "tok")
+    monkeypatch.setattr(config, "API_KEY", "key")
+
+    fake_response = MagicMock()
+    fake_response.json.return_value = {
+        "reservations": [
+            {"reservation_id": 1, "day": "2026-10-22", "time_slot": "19:00:00"},
+            {"reservation_id": 2, "day": "2026-10-22", "time_slot": "21:00:00"},
+            {"reservation_id": 3, "day": "2026-11-01", "time_slot": "18:00:00"},
+        ]
+    }
+    fake_response.raise_for_status = MagicMock()
+
+    with patch("resy_api.requests.get", return_value=fake_response) as mock_get:
+        days = resy_api.upcoming_reservation_days()
+
+    assert days == {"2026-10-22", "2026-11-01"}
+    assert mock_get.call_args.kwargs["params"] == {"type": "upcoming"}

@@ -9,8 +9,48 @@ import request_parser
 import resy_api
 import targets as targets_module
 
+# How often to re-read the account's upcoming reservations from Resy, so
+# ones booked by hand mid-run are respected. Always re-checked right
+# before a booking too.
+RESY_RESERVATIONS_REFRESH_SECONDS = 300
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+
+
+class ReservedDays:
+    """Days that already have a reservation, so the bot doesn't book a
+    second one: bookings recorded in targets.json, the account's upcoming
+    reservations on Resy (including ones made by hand), and bookings made
+    this run. Supports `day in reserved`.
+    """
+
+    def __init__(self, known=()):
+        self._known = set(known)
+        self._on_resy = set()
+        self._fetched_at = None
+
+    def refresh(self, max_age=RESY_RESERVATIONS_REFRESH_SECONDS):
+        now = time.monotonic()
+        if self._fetched_at is not None and now - self._fetched_at < max_age:
+            return
+        try:
+            days = resy_api.upcoming_reservation_days()
+        except Exception:
+            # Keep the last known list and retry next round, rather than
+            # stopping every target over a flaky read-only call.
+            logger.exception("couldn't fetch upcoming reservations from Resy - using last known")
+            return
+        if days != self._on_resy:
+            logger.info("upcoming reservations on Resy: %s", sorted(days))
+        self._on_resy = days
+        self._fetched_at = now
+
+    def add(self, day):
+        self._known.add(day)
+
+    def __contains__(self, day):
+        return day in self._known or day in self._on_resy
 
 
 class Watch:
@@ -33,11 +73,16 @@ class Watch:
     def dry_run(self):
         return config.DRY_RUN if self.target.dry_run is None else self.target.dry_run
 
+    @property
+    def allow_same_day(self):
+        return self.criteria.allow_same_day
+
 
 def find_target_slot(key, venue_id, criteria, booked_days=frozenset()):
     """Check every candidate date in order; return (day, slot, all_failed).
     Dates in booked_days are skipped - never two reservations on one day,
-    whichever targets they come from.
+    whichever targets (or hand-made Resy bookings) they come from, unless
+    the target's request opts out (allow_same_day).
     day/slot are the first time-window-matching slot found, or None if
     nothing's open yet. all_failed is True when every single date errored
     (vs. legitimately having no availability) - the caller uses this to
@@ -161,9 +206,7 @@ def booked_days_from_targets():
 
 def main():
     watches = build_watches()
-    booked_days = booked_days_from_targets()
-    if booked_days:
-        logger.info("not booking again on already-booked days: %s", sorted(booked_days))
+    reserved = ReservedDays(booked_days_from_targets())
 
     payment_method_id = None
     if watches:
@@ -177,18 +220,27 @@ def main():
     while watches:
         still_watching = []
         any_target_all_failed = False
+        reserved.refresh()
         for watch in watches:
             try:
+                skip_days = frozenset() if watch.allow_same_day else reserved
                 day, slot, all_failed = find_target_slot(
-                    watch.key, watch.venue_id, watch.criteria, booked_days
+                    watch.key, watch.venue_id, watch.criteria, skip_days
                 )
                 any_target_all_failed = any_target_all_failed or all_failed
+                if slot and not watch.dry_run and not watch.allow_same_day:
+                    reserved.refresh(max_age=0)  # catch a reservation made by hand just now
+                    if day in reserved:
+                        logger.info("[%s] %s now has another reservation - not booking it",
+                                    watch.key, day)
+                        still_watching.append(watch)
+                        continue
                 if slot:
                     logger.info("[%s] slot found: %s %s - attempting to book",
                                 watch.key, day, resy_api.slot_time(slot))
                     if try_book(watch, day, slot, payment_method_id):
                         if not watch.dry_run:
-                            booked_days.add(day)  # later targets this round skip it too
+                            reserved.add(day)  # later targets this round skip it too
                         continue  # booked - drop from the watch list
                 still_watching.append(watch)
             except Exception:
