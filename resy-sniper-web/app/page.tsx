@@ -75,6 +75,17 @@ function formatReservation(day: string, time: string): string {
   return `${dateStr} · ${h}:${mStr} ${ampm}`;
 }
 
+/** res.json(), but a non-JSON body (e.g. Vercel's plain-text timeout page)
+ * becomes a readable error instead of a SyntaxError. */
+async function readJson(res: Response): Promise<{ error?: string } & Record<string, any>> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`server returned HTTP ${res.status}: ${text.slice(0, 120) || "empty response"}`);
+  }
+}
+
 function ValidationPanel({ result }: { result: ValidationResult }) {
   return (
     <div className="validation-panel">
@@ -231,17 +242,38 @@ export default function DashboardPage() {
     const t = targets[index];
     setCheckingKey(t.key);
     setSaveMessages((m) => ({ ...m, [t.key]: undefined }));
+    // Whatever goes wrong - a dropped connection, iOS suspending the tab
+    // mid-request, a platform timeout page instead of JSON - the button
+    // must come back and say so, never sit on "Checking & saving..." forever.
+    const currentKey = { value: t.key };
+    try {
+      await runCheckAndSave(index, t, currentKey);
+    } catch (err) {
+      const text = err instanceof Error ? err.message : String(err);
+      setSaveMessages((m) => ({
+        ...m,
+        [currentKey.value]: { text: `Check & Save failed: ${text}. Try again.`, kind: "error" },
+      }));
+    } finally {
+      setCheckingKey(null);
+    }
+  }
 
+  /** currentKey tracks the card's key so the caller can attach an error to it
+   * even after a new target's placeholder key is replaced by a readable slug. */
+  async function runCheckAndSave(index: number, t: Target, currentKey: { value: string }) {
+    if (!targets) return;
     const res = await fetch("/api/validate-target", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ venue_name: t.venue_name, request: t.request }),
+      signal: AbortSignal.timeout(90_000),
     });
-    const data: ValidationResult = await res.json();
+    const data: ValidationResult & { error?: string } = await readJson(res);
+    if (!res.ok) throw new Error(data.error || `validation returned HTTP ${res.status}`);
     setValidationResults((v) => ({ ...v, [t.key]: data }));
 
     if (!data.venue || !data.criteria) {
-      setCheckingKey(null);
       setSaveMessages((m) => ({
         ...m,
         [t.key]: { text: "Fix the issue(s) above before saving.", kind: "error" },
@@ -272,6 +304,7 @@ export default function DashboardPage() {
     setTargets(patchedTargets);
 
     if (newKey !== t.key) {
+      currentKey.value = newKey;
       setEditingKeys((prev) => {
         if (!prev.has(t.key)) return prev;
         const next = new Set(prev);
@@ -294,8 +327,7 @@ export default function DashboardPage() {
         message: `Update target "${newKey}" via web UI`,
       }),
     });
-    const saveData = await saveRes.json();
-    setCheckingKey(null);
+    const saveData = await readJson(saveRes);
     if (!saveRes.ok) {
       setSaveMessages((m) => ({ ...m, [newKey]: { text: saveData.error || "Save failed", kind: "error" } }));
       return;
