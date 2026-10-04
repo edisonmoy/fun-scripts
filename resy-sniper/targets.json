@@ -1,5 +1,14 @@
 [
   {
+    "key": "ugly-baby",
+    "venue_name": "Ugly baby",
+    "request": "2 people. 10/22-24 dinner between 6-8pm. ",
+    "venue_id": 93881,
+    "venue_display": "Ugly Baby — 364 Grand St, Brooklyn, NY 11211",
+    "enabled": true,
+    "dry_run": false
+  },
+  {
     "key": "amontillado-winebar-thursday",
     "venue_name": "lei winebar chinatown nyc",
     "request": "this thursday 4people. 7:30-8:00pm Et start ",
